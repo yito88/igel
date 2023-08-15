@@ -4,11 +4,14 @@
             [clojure.data.fressian :as fressian]
             [kvs.memtable :as memtable])
   (:import (java.io FileOutputStream BufferedOutputStream)
+           (java.nio ByteBuffer)
            (java.util.zip CRC32)))
 
-(defn serialize
+(defn serialize-long
   [value]
-  (.array (fressian/write value)))
+  (let [buf (ByteBuffer/allocate Long/BYTES)]
+    (.putLong buf value)
+    (.array buf)))
 
 (defn calc-crc32 [data]
   (let [crc32 (CRC32.)]
@@ -26,7 +29,7 @@
 ; - Each key or value's data format
 ; | Length (8 bytes) | Data (Length bytes) | CRC (4 byters) |
 
-(def ^:private ^:const LEN_SIZE 8)
+(def ^:private ^:const LEN_SIZE Long/BYTES)
 
 (defn flush!
   [memtable file-path]
@@ -36,10 +39,10 @@
         (let [k (.getKey entry)
               v (.getValue entry)]
           (doto out-stream
-            (.write (serialize (count k)))
+            (.write (serialize-long (count k)))
             (.write k)
             (.write (calc-crc32 k))
-            (.write (serialize (count v)))
+            (.write (serialize-long (count v)))
             (.write v)
             (.write (calc-crc32 v)))
           (blossom/add bf k))))

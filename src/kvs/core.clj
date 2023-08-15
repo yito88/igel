@@ -1,10 +1,9 @@
 (ns kvs.core
-  (:require [blossom.core :as blossom]
-            [kvs.io :as io]
+  (:require [kvs.io :as io]
             [kvs.memtable :refer [create-memtable]]
             [kvs.sstable :refer [get-sstable-path
                                  restore-tree-store
-                                 update-tree!]]
+                                 update-tree]]
             [kvs.store :refer [IStore select scan write! delete!]])
   (:gen-class))
 
@@ -12,10 +11,10 @@
   IStore
   (select
     [_ k]
-    (or (select @memtable k) (select tree k)))
+    (or (select @memtable k) (select @tree k)))
   (scan
     [_ from-key to-key]
-    (merge (scan tree from-key to-key) (scan @memtable from-key to-key)))
+    (merge (scan @tree from-key to-key) (scan @memtable from-key to-key)))
   (write!
     [_ k v]
     (when (> (write! @memtable k v) (:memtable-size config))
@@ -23,7 +22,7 @@
             new-id (swap! sstable-id inc)
             ;; TODO: async flush
             bf (io/flush! old (get-sstable-path (:sstable-dir config) new-id))]
-        (update-tree! tree new-id bf))))
+        (reset! tree (update-tree tree new-id bf)))))
   (delete!
     [_ k]
     (when (> (delete! @memtable k) (:memtable-size config))
@@ -31,7 +30,7 @@
             new-id (swap! sstable-id inc)
             ;; TODO: async flush
             bf (io/flush! old (get-sstable-path (:sstable-dir config) new-id))]
-        (update-tree! tree new-id bf)))))
+        (reset! tree (update-tree tree new-id bf))))))
 
 (defn load-config
   "Load the KVS config from config.toml"
@@ -43,9 +42,9 @@
 (defn gen-kvs
   [config-path]
   (let [config (load-config config-path)
-        memtable (atom (create-memtable))
+        memtable (create-memtable)
         [treestore last-index]  (restore-tree-store config)]
-    (->KVS config memtable treestore (atom last-index))))
+    (->KVS config (atom memtable) (atom treestore) (atom last-index))))
 
 (defn -main
   "I don't do a whole lot ... yet."
