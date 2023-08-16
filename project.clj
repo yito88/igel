@@ -5,6 +5,7 @@
             :url "https://www.eclipse.org/legal/epl-2.0/"}
   :dependencies [[org.clojure/clojure "1.10.3"]
                  [org.clojure/data.fressian "1.0.0"]
+                 [org.clojure/tools.logging "1.2.4"]
                  [blossom "1.0.0"]]
   :main ^:skip-aot kvs.core
   :target-path "target/%s"

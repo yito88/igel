@@ -1,5 +1,6 @@
 (ns kvs.core
-  (:require [kvs.io :as io]
+  (:require [clojure.tools.logging :as logging]
+            [kvs.io :as io]
             [kvs.memtable :refer [create-memtable]]
             [kvs.sstable :refer [get-sstable-path
                                  restore-tree-store
@@ -52,13 +53,14 @@
   ; sequencial write
   (let [kvs (gen-kvs config-path)]
     (dorun
-     (for [i (range 0 128)]
+     (doseq [i (range 0 128)]
        (let [k (.getBytes (str "key" i))
              v (.getBytes (str "val" i))]
          (write! kvs k v))))
-    (for [i (range 0 128)]
+    (doseq [i (range 0 128)]
       (let [k (.getBytes (str "key" i))
             v (.getBytes (str "val" i))
             actual (select kvs k)]
-        (when-not (java.util.Arrays/equals actual v)
+        (if (java.util.Arrays/equals actual v)
+          (println "OK: key:" (String. k) "value:" (String. actual))
           (println "ERROR: key:" (String. k) "value:" (String. actual) "expect:" (String. v)))))))

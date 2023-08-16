@@ -13,9 +13,8 @@
     [_ k]
     (loop [filters (map-indexed vector bloom-filters)]
       (let [[index bf] (first filters)
-            hit? (blossom/hit? bf k)
             v (io/read-value (get-sstable-path dir (nth ids index)) k)]
-        (if (and hit? v)
+        (if (and bf (blossom/hit? bf k))
           v
           (when index
             (recur (next filters)))))))
