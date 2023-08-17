@@ -1,5 +1,6 @@
 (ns kvs.memtable
-  (:require [kvs.store :refer [IStore select scan write! delete!]]))
+  (:require [kvs.data :as data]
+            [kvs.store :refer [IStore select scan write! delete!]]))
 
 ;; for TreeMap
 (defn byte-array-comparator
@@ -22,10 +23,10 @@
     (.subMap mem from-key true to-key false))
   (write!
     [_ k v]
-    (.put mem k v))
+    (.put mem k (data/new-data v)))
   (delete!
     [_ k]
-    (.put mem k nil)))
+    (.put mem k (data/deleted-data))))
 
 (defrecord Memtable [mem size]
   IStore

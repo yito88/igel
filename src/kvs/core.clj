@@ -12,10 +12,14 @@
   IStore
   (select
     [_ k]
-    (or (select @memtable k) (select @tree k)))
+    (let [data (or (select @memtable k) (select @tree k))]
+      (if (:deleted? data) nil (:value data))))
   (scan
     [_ from-key to-key]
-    (merge (scan @tree from-key to-key) (scan @memtable from-key to-key)))
+    (->> (merge (scan @tree from-key to-key) (scan @memtable from-key to-key))
+         (filter (fn [[_ data]] (:deleted? data)))
+         (map (fn [[k data]] [k (:value data)]))
+         (into {})))
   (write!
     [_ k v]
     (when (> (write! @memtable k v) (:memtable-size config))
@@ -47,20 +51,41 @@
         [treestore last-index]  (restore-tree-store config)]
     (->KVS config (atom memtable) (atom treestore) (atom last-index))))
 
+(def NUM_ITEMS 128)
+
 (defn -main
   "I don't do a whole lot ... yet."
   [& config-path]
   ; sequencial write
   (let [kvs (gen-kvs config-path)]
     (dorun
-     (doseq [i (range 0 1024)]
+     (doseq [i (range 0 NUM_ITEMS)]
        (let [k (.getBytes (str "key" i))
              v (.getBytes (str "val" i))]
          (write! kvs k v))))
-    (doseq [i (range 0 1024)]
+    (doseq [i (range 0 NUM_ITEMS)]
+      (when (zero? (mod i 32))
+        (let [k (.getBytes (str "key" i))]
+          (delete! kvs k))))
+    (doseq [i (range 0 NUM_ITEMS)]
       (let [k (.getBytes (str "key" i))
-            v (.getBytes (str "val" i))
+            v (if (zero? (mod i 32)) nil (.getBytes (str "val" i)))
             actual (select kvs k)]
-        (if (java.util.Arrays/equals actual v)
-          (println "OK: key:" (String. k) "value:" (String. actual))
-          (println "ERROR: key:" (String. k) "value:" (String. actual) "expect:" (String. v)))))))
+        (cond
+          (and (nil? v) (nil? actual))
+          (println "OK: key:" (String. k) "value was deleted")
+
+          (and (nil? v) (seq actual))
+          (println "ERROR: key:" (String. k) "the value was not deleted unexpectedly."
+                   "actual:" (String. actual))
+
+          (and (seq v) (nil? actual))
+          (println "ERROR: key:" (String. k) "the value was deleted unexpectedly."
+                   "expected:" (String. v))
+
+          :else
+          (if (java.util.Arrays/equals actual v)
+            (println "OK: key:" (String. k) "value:" (String. actual))
+            (println "ERROR: key:" (String. k)
+                     "value:" (String. actual)
+                     "expect:" (String. v))))))))

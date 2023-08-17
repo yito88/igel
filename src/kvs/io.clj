@@ -2,6 +2,7 @@
   (:require [blossom.core :as blossom]
             [clojure.tools.logging :as logging]
             [clojure.java.io :as io]
+            [kvs.data :as data]
             [kvs.memtable :as memtable])
   (:import (java.io FileOutputStream BufferedOutputStream)
            (java.nio ByteBuffer)
@@ -47,14 +48,21 @@
     (with-open [out-stream (BufferedOutputStream. (FileOutputStream. file-path) 16384)]
       (doseq [entry (memtable/entry-set memtable)]
         (let [k (.getKey entry)
-              v (.getValue entry)]
+              data (.getValue entry)
+              value (:value data)]
+          ;; write the key
           (doto out-stream
             (.write (serialize-long (count k)))
             (.write k)
-            (.write (serialize-long (calc-crc32 k)))
-            (.write (serialize-long (count v)))
-            (.write v)
-            (.write (serialize-long (calc-crc32 v))))
+            (.write (serialize-long (calc-crc32 k))))
+          ;; write the value
+          ;; if it's deleted, write only the length 0
+          (if (:deleted? data)
+            (.write out-stream (serialize-long 0))
+            (doto out-stream
+              (.write (serialize-long (count value)))
+              (.write value)
+              (.write (serialize-long (calc-crc32 value)))))
           (blossom/add bf k))))
     bf))
 
@@ -67,10 +75,13 @@
             read-len (.read in-stream buf 0 data-len)
             crc-buf (make-array Byte/TYPE CRC_SIZE)
             crc-len (.read in-stream crc-buf 0 CRC_SIZE)]
-        (when (and (= read-len data-len)
-                   (= crc-len CRC_SIZE)
-                   (valid-data? buf (deserialize-long crc-buf)))
-          buf)))))
+        (if (zero? data-len)
+          nil ;; the data was deleted
+          ;; TODO throw an exception when unexpected length
+          (when (and (= read-len data-len)
+                     (= crc-len CRC_SIZE)
+                     (valid-data? buf (deserialize-long crc-buf)))
+            buf))))))
 
 (defn- read-kv-pair
   [in-stream]
@@ -82,5 +93,7 @@
     (loop []
       (let [[k v] (read-kv-pair in-stream)]
         (if (java.util.Arrays/equals k target-key)
-          v
+          (if (nil? v)
+            (data/deleted-data)
+            (data/new-data v))
           (if (nil? k) nil (recur)))))))

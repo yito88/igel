@@ -1,5 +1,6 @@
 (ns kvs.sstable
   (:require [blossom.core :as blossom]
+            [kvs.data :as data]
             [kvs.io :as io]
             [kvs.store :refer [IStore]]))
 
@@ -19,8 +20,10 @@
           (when id
             (recur (next tables)))))))
   (scan [_ from-key to-key] nil)
-  (write! [_ k v] nil)
-  (delete! [_ k] nil))
+  ;; TODO throw an exception
+  (write! [_ _k _v] nil)
+  ;; TODO throw an exception
+  (delete! [_ _k] nil))
 
 (defn restore-tree-store
   [{:keys [sstable-dir]}]
