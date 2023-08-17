@@ -7,17 +7,17 @@
   [sstable-dir id]
   (str sstable-dir "/" id ".sst"))
 
-(defrecord TreeStore [dir ids bloom-filters]
+(defrecord TreeStore [dir sstables]
   IStore
   (select
     [_ k]
-    (loop [filters (map-indexed vector bloom-filters)]
-      (let [[index bf] (first filters)
-            v (io/read-value (get-sstable-path dir (nth ids index)) k)]
-        (if (and bf (blossom/hit? bf k))
+    (loop [tables sstables]
+      (let [[id bf] (first tables)
+            v (io/read-value (get-sstable-path dir id) k)]
+        (if (and bf (blossom/hit? bf k) v)
           v
-          (when index
-            (recur (next filters)))))))
+          (when id
+            (recur (next tables)))))))
   (scan [_ from-key to-key] nil)
   (write! [_ k v] nil)
   (delete! [_ k] nil))
@@ -26,10 +26,9 @@
   [{:keys [sstable-dir]}]
   (io/make-sstable-dir sstable-dir)
   ; TODO: restore from the exiting sstables
-  [(->TreeStore sstable-dir '() nil) 0])
+  [(->TreeStore sstable-dir {}) 0])
 
 (defn update-tree
   [tree new-id new-filter]
   (->TreeStore (:dir @tree)
-               (cons new-id (:ids @tree))
-               (cons new-filter (:bloom-filters @tree))))
+               (assoc (:sstables @tree) new-id new-filter)))

@@ -53,11 +53,11 @@
   ; sequencial write
   (let [kvs (gen-kvs config-path)]
     (dorun
-     (doseq [i (range 0 128)]
+     (doseq [i (range 0 1024)]
        (let [k (.getBytes (str "key" i))
              v (.getBytes (str "val" i))]
          (write! kvs k v))))
-    (doseq [i (range 0 128)]
+    (doseq [i (range 0 1024)]
       (let [k (.getBytes (str "key" i))
             v (.getBytes (str "val" i))
             actual (select kvs k)]

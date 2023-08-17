@@ -67,8 +67,6 @@
             read-len (.read in-stream buf 0 data-len)
             crc-buf (make-array Byte/TYPE CRC_SIZE)
             crc-len (.read in-stream crc-buf 0 CRC_SIZE)]
-        (logging/info "data-len:" data-len "read data:" (String. buf))
-        (logging/info "crc-len:" crc-len "read crc:" (deserialize-long crc-buf))
         (when (and (= read-len data-len)
                    (= crc-len CRC_SIZE)
                    (valid-data? buf (deserialize-long crc-buf)))
@@ -83,6 +81,6 @@
   (with-open [in-stream (clojure.java.io/input-stream file-path)]
     (loop []
       (let [[k v] (read-kv-pair in-stream)]
-        (if (= k target-key)
+        (if (java.util.Arrays/equals k target-key)
           v
           (if (nil? k) nil (recur)))))))
