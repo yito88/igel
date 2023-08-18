@@ -2,6 +2,12 @@
 
 Simpl Key-Value Store
 
+## TODO
+- WAL
+- Compaction
+- Concurrency
+- Error handling
+
 ## Installation
 
 Download from http://example.com/FIXME.

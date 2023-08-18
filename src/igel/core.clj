@@ -5,7 +5,7 @@
             [igel.sstable :refer [get-sstable-path
                                   restore-tree-store
                                   update-tree]]
-            [igel.store :refer [IStore select scan write! delete!]])
+            [igel.store :refer [IStore IFlush flush! select scan write! delete!]])
   (:gen-class))
 
 (defrecord KVS [config memtable tree sstable-id]
@@ -21,21 +21,23 @@
          (map (fn [[k data]] [k (:value data)]))
          (into {})))
   (write!
-    [_ k v]
+    [this k v]
+    ;; TODO: wait for WAL
     (when (> (write! @memtable k v) (:memtable-size config))
-      (let [[old _] (reset-vals! memtable (create-memtable))
-            new-id (swap! sstable-id inc)
-            ;; TODO: async flush
-            bf (io/flush! old (get-sstable-path (:sstable-dir config) new-id))]
-        (reset! tree (update-tree tree new-id bf)))))
+      (flush! this)))
   (delete!
-    [_ k]
+    [this k]
     (when (> (delete! @memtable k) (:memtable-size config))
-      (let [[old _] (reset-vals! memtable (create-memtable))
-            new-id (swap! sstable-id inc)
-            ;; TODO: async flush
-            bf (io/flush! old (get-sstable-path (:sstable-dir config) new-id))]
-        (reset! tree (update-tree tree new-id bf))))))
+      (flush! this)))
+
+  IFlush
+  (flush!
+    [_]
+    (let [[old _] (reset-vals! memtable (create-memtable))
+          new-id (swap! sstable-id inc)
+          ;; TODO: async flush
+          bf (io/flush! old (get-sstable-path (:sstable-dir config) new-id))]
+      (reset! tree (update-tree tree new-id bf)))))
 
 (defn load-config
   "Load the KVS config from config.toml"
@@ -51,8 +53,8 @@
         [treestore last-index]  (restore-tree-store config)]
     (->KVS config (atom memtable) (atom treestore) (atom last-index))))
 
+;; TODO: Move to test
 (def NUM_ITEMS 128)
-
 (defn -main
   "I don't do a whole lot ... yet."
   [& config-path]

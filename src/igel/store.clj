@@ -6,3 +6,7 @@
   (scan [this ^bytes from-key ^bytes to-key])
   (write! [this ^bytes k ^bytes v])
   (delete! [this ^bytes k]))
+
+(defprotocol IFlush
+  "Flush the memtable and update KVS state"
+  (flush! [this]))
