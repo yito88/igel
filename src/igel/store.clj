@@ -1,4 +1,4 @@
-(ns kvs.store)
+(ns igel.store)
 
 (defprotocol IStore
   "Interface for the data store"

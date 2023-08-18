@@ -1,8 +1,8 @@
-(ns kvs.sstable
+(ns igel.sstable
   (:require [blossom.core :as blossom]
-            [kvs.data :as data]
-            [kvs.io :as io]
-            [kvs.store :refer [IStore]]))
+            [igel.data :as data]
+            [igel.io :as io]
+            [igel.store :refer [IStore]]))
 
 (defn get-sstable-path
   [sstable-dir id]

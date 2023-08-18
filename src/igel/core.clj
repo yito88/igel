@@ -1,11 +1,11 @@
-(ns kvs.core
+(ns igel.core
   (:require [clojure.tools.logging :as logging]
-            [kvs.io :as io]
-            [kvs.memtable :refer [create-memtable]]
-            [kvs.sstable :refer [get-sstable-path
-                                 restore-tree-store
-                                 update-tree]]
-            [kvs.store :refer [IStore select scan write! delete!]])
+            [igel.io :as io]
+            [igel.memtable :refer [create-memtable]]
+            [igel.sstable :refer [get-sstable-path
+                                  restore-tree-store
+                                  update-tree]]
+            [igel.store :refer [IStore select scan write! delete!]])
   (:gen-class))
 
 (defrecord KVS [config memtable tree sstable-id]

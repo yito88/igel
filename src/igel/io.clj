@@ -1,9 +1,9 @@
-(ns kvs.io
+(ns igel.io
   (:require [blossom.core :as blossom]
             [clojure.tools.logging :as logging]
             [clojure.java.io :as io]
-            [kvs.data :as data]
-            [kvs.memtable :as memtable])
+            [igel.data :as data]
+            [igel.memtable :as memtable])
   (:import (java.io FileOutputStream BufferedOutputStream)
            (java.nio ByteBuffer)
            (java.util.zip CRC32)))

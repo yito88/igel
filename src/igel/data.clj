@@ -1,4 +1,4 @@
-(ns kvs.data)
+(ns igel.data)
 
 (defrecord Data [value deleted?])
 

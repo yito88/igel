@@ -1,6 +1,6 @@
-# kvs
+# Igel
 
-FIXME: description
+Simpl Key-Value Store
 
 ## Installation
 
@@ -10,7 +10,7 @@ Download from http://example.com/FIXME.
 
 FIXME: explanation
 
-    $ java -jar kvs-0.1.0-standalone.jar [args]
+    $ java -jar igel-0.1.0-standalone.jar [args]
 
 ## Options
 

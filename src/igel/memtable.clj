@@ -1,6 +1,6 @@
-(ns kvs.memtable
-  (:require [kvs.data :as data]
-            [kvs.store :refer [IStore select scan write! delete!]]))
+(ns igel.memtable
+  (:require [igel.data :as data]
+            [igel.store :refer [IStore select scan write! delete!]]))
 
 ;; for TreeMap
 (defn byte-array-comparator
