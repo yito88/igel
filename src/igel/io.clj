@@ -43,12 +43,15 @@
 
 (defn flush!
   [memtable file-path]
-  (let [bf (blossom/make-filter {:hash-size "SHA-256" :size 1024})]
-    (logging/info "Starting flush to SSTable" file-path)
+  (let [bf (blossom/make-filter {:hash-size "SHA-256" :size 1024})
+        entry-set (memtable/entry-set memtable)
+        head-key (-> entry-set first first)
+        tail-key (-> entry-set last first)]
+    (logging/info "Starting flush to SSTable" file-path head-key tail-key)
     (with-open [out-stream (BufferedOutputStream. (FileOutputStream. file-path) 16384)]
-      (doseq [entry (memtable/entry-set memtable)]
-        (let [k (.getKey entry)
-              data (.getValue entry)
+      (doseq [entry entry-set]
+        (let [k (first entry)
+              data (second entry)
               value (:value data)]
           ;; write the key
           (doto out-stream
@@ -64,9 +67,9 @@
               (.write value)
               (.write (serialize-long (calc-crc32 value)))))
           (blossom/add bf k))))
-    bf))
+    [bf head-key tail-key]))
 
-(defn- read-data [in-stream]
+(defn- read-data! [in-stream]
   (let [buf (make-array Byte/TYPE LEN_SIZE)
         read-len (.read in-stream buf 0 LEN_SIZE)]
     (when (= read-len LEN_SIZE)
@@ -83,17 +86,33 @@
                      (valid-data? buf (deserialize-long crc-buf)))
             buf))))))
 
-(defn- read-kv-pair
+(defn- read-kv-pair!
   [in-stream]
-  [(read-data in-stream) (read-data in-stream)])
+  [(read-data! in-stream) (read-data! in-stream)])
 
 (defn read-value
   [file-path target-key]
   (with-open [in-stream (clojure.java.io/input-stream file-path)]
     (loop []
-      (let [[k v] (read-kv-pair in-stream)]
-        (if (java.util.Arrays/equals k target-key)
+      (let [[k v] (read-kv-pair! in-stream)]
+        (if (data/byte-array-equals? k target-key)
           (if (nil? v)
             (data/deleted-data)
             (data/new-data v))
           (if (nil? k) nil (recur)))))))
+
+(defn scan-pairs
+  [file-path from-key to-key]
+  (with-open [in-stream (clojure.java.io/input-stream file-path)]
+    (loop [pairs (transient [])]
+      (let [[k v] (read-kv-pair! in-stream)
+            data (cond
+                   (and (seq k) (seq v)) (data/new-data v)
+                   (and (seq k) (nil? v)) (data/deleted-data)
+                   :else nil)]
+        (if (data/byte-array-smaller-or-equal? to-key k)
+          (persistent! pairs)
+          (recur
+           (if (data/byte-array-smaller-or-equal? from-key k)
+             (conj! pairs [k data])
+             pairs)))))))

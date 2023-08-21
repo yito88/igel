@@ -5,8 +5,9 @@ Simpl Key-Value Store
 ## TODO
 - WAL
 - Compaction
-- Concurrency
 - Error handling
+- Concurrency
+- Indexileing
 
 ## Installation
 

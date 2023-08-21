@@ -1,26 +1,17 @@
 (ns igel.memtable
   (:require [igel.data :as data]
-            [igel.store :refer [IStore select scan write! delete!]]))
-
-;; for TreeMap
-(defn byte-array-comparator
-  []
-  (reify java.util.Comparator
-    (compare [_ a b]
-      (loop [i 0]
-        (if (< i (min (count a) (count b)))
-          (let [cmp (compare (aget a i) (aget b i))]
-            (if (zero? cmp)
-              (recur (inc i))
-              cmp))
-          (compare (count a) (count b)))))))
+            [igel.store :as store :refer [select scan write! delete!]]))
 
 (defrecord MemStore [^java.util.TreeMap mem]
-  IStore
+  store/IStoreRead
   (select [_ k] (.get mem k))
   (scan
     [_ from-key to-key]
-    (.subMap mem from-key true to-key false))
+    (->> (.subMap mem from-key true to-key false)
+         .entrySet
+         (map (fn [e] [(.getKey e) (.getValue e)]))))
+
+  store/IStoreMutate
   (write!
     [_ k v]
     (.put mem k (data/new-data v)))
@@ -29,7 +20,7 @@
     (.put mem k (data/deleted-data))))
 
 (defrecord Memtable [mem size]
-  IStore
+  store/IStoreRead
   ;; TODO: need concurrent BTreeMap
   (select
     [_ k]
@@ -39,6 +30,8 @@
     [_ from-key to-key]
     (locking mem
       (scan mem from-key to-key)))
+
+  store/IStoreMutate
   (write!
     [_ k v]
     (locking mem
@@ -53,9 +46,10 @@
 (defn create-memtable
   "Create the memtable handler"
   []
-  (->Memtable (->MemStore (new java.util.TreeMap (byte-array-comparator)))
+  (->Memtable (->MemStore (new java.util.TreeMap (data/byte-array-comparator)))
               (atom 0)))
 
 (defn entry-set
   [^Memtable memtable]
-  (-> memtable :mem :mem .entrySet seq))
+  (->> memtable :mem :mem .entrySet
+       (map (fn [e] [(.getKey e) (.getValue e)]))))
