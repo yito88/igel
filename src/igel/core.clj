@@ -13,8 +13,6 @@
 
 (defn- merge-scan-results
   [mem-ret tree-ret]
-  (println "DEBUG: mem-ret" mem-ret)
-  (println "DEBUG: tree-ret" tree-ret)
   (loop [pairs (transient [])
          m-pairs mem-ret
          t-pairs tree-ret]

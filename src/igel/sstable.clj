@@ -38,9 +38,9 @@
             (recur
              (if (data/byte-array-smaller-or-equal? from-key tail-key)
                (reduce
-                 #(conj! %1 %2)
-                 pairs
-                 (io/scan-pairs sstable-path from-key to-key))
+                #(conj! %1 %2)
+                pairs
+                (io/scan-pairs sstable-path from-key to-key))
                pairs)
              (rest tables))))))))
 

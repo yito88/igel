@@ -110,9 +110,11 @@
                    (and (seq k) (seq v)) (data/new-data v)
                    (and (seq k) (nil? v)) (data/deleted-data)
                    :else nil)]
-        (if (data/byte-array-smaller-or-equal? to-key k)
+        (if (nil? k)
           (persistent! pairs)
-          (recur
-           (if (data/byte-array-smaller-or-equal? from-key k)
-             (conj! pairs [k data])
-             pairs)))))))
+          (if (data/byte-array-smaller-or-equal? to-key k)
+            (persistent! pairs)
+            (recur
+             (if (data/byte-array-smaller-or-equal? from-key k)
+               (conj! pairs [k data])
+               pairs))))))))
