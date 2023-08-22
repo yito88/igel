@@ -4,12 +4,22 @@
 
 (defrecord MemStore [^java.util.TreeMap mem]
   store/IStoreRead
-  (select [_ k] (.get mem k))
+  (select
+    [_ k]
+    (let [data (.get mem k)]
+      (when (seq data)
+        (if (data/is-valid? data) data (data/deleted-data)))))
   (scan
     [_ from-key to-key]
-    (->> (.subMap mem from-key true to-key false)
-         .entrySet
-         (map (fn [e] [(.getKey e) (.getValue e)]))))
+    (some->> (.subMap mem from-key true to-key false)
+             .entrySet
+             (map
+              (fn [e]
+                (let [k (.getKey e)
+                      data (.getValue e)]
+                  (if (data/is-valid? data)
+                    [k data]
+                    [k (data/deleted-data)]))))))
 
   store/IStoreMutate
   (write!

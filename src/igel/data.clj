@@ -4,12 +4,16 @@
 (defrecord Data [value deleted?])
 
 (defn new-data
-  [value]
+  [^bytes value]
   (->Data value false))
 
 (defn deleted-data
   []
-  (->Data nil false))
+  (->Data nil true))
+
+(defn is-valid?
+  [^Data data]
+  (not (:deleted? data)))
 
 (defn byte-array-comparator
   []

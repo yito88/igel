@@ -13,49 +13,48 @@
 
 (defn- merge-scan-results
   [mem-ret tree-ret]
-    (println "DEBUG: m-pairs" mem-ret)
-    (println "DEBUG: t-pairs" tree-ret)
+  (println "DEBUG: mem-ret" mem-ret)
+  (println "DEBUG: tree-ret" tree-ret)
   (loop [pairs (transient [])
-         mem-pairs mem-ret
-         tree-pairs tree-ret]
-    (if (and (empty? mem-pairs) (empty? tree-pairs))
+         m-pairs mem-ret
+         t-pairs tree-ret]
+    (cond
+      (and (empty? m-pairs) (empty? t-pairs))
       (persistent! pairs)
-      (cond
-        (and (seq mem-pairs) (empty? tree-pairs))
-        (persistent! (reduce #(conj! %1 %2) pairs mem-pairs))
-        (and (empty? mem-pairs) (seq tree-pairs))
-        (persistent! (reduce #(conj! %1 %2) pairs tree-pairs))
-        :else
-        (let [[m-key m-data] (first mem-pairs)
-              [t-key t-data] (first tree-pairs)
-              [m-next t-next] (cond
-                                (data/byte-array-equals? m-key t-key)
-                                (do
-                                  (conj! pairs [m-key m-data])
-                                  [(rest mem-pairs) (rest tree-pairs)])
-                                (data/byte-array-smaller? m-key t-key)
-                                (do
-                                  (conj! pairs [m-key m-data])
-                                  [(rest mem-pairs) tree-pairs])
-                                (data/byte-array-smaller? t-key m-key)
-                                (do
-                                  (conj! pairs [t-key t-data])
-                                  [mem-pairs (rest tree-pairs)]))]
-          (recur pairs m-next t-next))))))
+      (and (seq m-pairs) (empty? t-pairs))
+      (reduce #(conj %1 %2) (persistent! pairs) m-pairs)
+      (and (empty? m-pairs) (seq t-pairs))
+      (reduce #(conj %1 %2) (persistent! pairs) t-pairs)
+      :else
+      (let [[m-key m-data] (first m-pairs)
+            [t-key t-data] (first t-pairs)
+            [m-rest t-rest] (cond
+                              (data/byte-array-equals? m-key t-key)
+                              (do
+                                (conj! pairs [m-key m-data])
+                                [(rest m-pairs) (rest t-pairs)])
+                              (data/byte-array-smaller? m-key t-key)
+                              (do
+                                (conj! pairs [m-key m-data])
+                                [(rest m-pairs) t-pairs])
+                              (data/byte-array-smaller? t-key m-key)
+                              (do
+                                (conj! pairs [t-key t-data])
+                                [m-pairs (rest t-pairs)]))]
+        (recur pairs m-rest t-rest)))))
 
 (defrecord KVS [config memtable tree sstable-id]
   store/IStoreRead
   (select
     [_ k]
     (let [data (or (select @memtable k) (select @tree k))]
-      (if (:deleted? data) nil (:value data))))
+      (when (data/is-valid? data) (:value data))))
   (scan
     [_ from-key to-key]
     (->> (merge-scan-results (scan @memtable from-key to-key)
                              (scan @tree from-key to-key))
-         (filter (fn [[_ data]] (:deleted? data)))
-         (map (fn [[k data]] [k (:value data)]))
-         (into {})))
+         (filter (fn [[_ data]] (data/is-valid? data)))
+         (map (fn [[k data]] [k (:value data)]))))
 
   store/IStoreMutate
   (write!
@@ -150,11 +149,31 @@
             expect (filter #(not (nil? %))
                            (for [i group]
                              (cond
-                               (zero? (mod i 32)) (.getBytes
-                                                   (str "overwritten-val" i))
+                               (zero? (mod i 32)) [(.getBytes (str "key" i))
+                                                   (.getBytes
+                                                    (str "overwritten-val" i))]
                                (zero? (mod i 16)) nil
-                               :else (.getBytes (str "val" i)))))
+                               :else [(.getBytes (str "key" i))
+                                      (.getBytes (str "val" i))])))
             actual (scan kvs from-key to-key)]
-        (println "expect: " expect)
-        (println "actual: " actual)
-        (= (count expect) (count actual))))))
+        (if (= (count expect) (count actual))
+          (if (every? true?
+                      (map
+                       (fn [[k1 v1] [k2 v2]]
+                         (and (data/byte-array-equals? k1 k2)
+                              (data/byte-array-equals? v1 v2)))
+                       expect
+                       actual))
+            (println "OK: " (map (fn [[k v]] [(String. k) (String. v)]) actual))
+            (do
+              (println "ERROR: some items of pairs is wrong")
+              (println "       expected:"
+                       (map (fn [[k v]] [(String. k) (String. v)]) expect))
+              (println "       actual:"
+                       (map (fn [[k v]] [(String. k) (String. v)]) actual))))
+          (do
+            (println "ERROR: the number of pairs is wrong")
+            (println "       expected:"
+                     (map (fn [[k v]] [(String. k) (String. v)]) expect))
+            (println "       actual:"
+                     (map (fn [[k v]] [(String. k) (String. v)]) actual))))))))
