@@ -14,7 +14,7 @@
   store/IStoreRead
   (select
     [_ k]
-    (loop [tables sstables]
+    (loop [tables (reverse sstables)]
       (let [[id table] (first tables)
             hit? (blossom/hit? (:bloom-filter table) k)
             sstable-path (get-sstable-path dir id)
@@ -25,20 +25,22 @@
             (recur (next tables)))))))
   (scan
     [_ from-key to-key]
-    (loop [pairs (transient [])
+    (loop [pairs (new java.util.TreeMap (data/byte-array-comparator))
            tables sstables]
       (if (empty? tables)
-        (persistent! pairs)
+        (->> pairs .entrySet (map (fn [e] [(.getKey e) (.getValue e)])))
         (let [[id table] (first tables)
               head-key (:head-key table)
               tail-key (:tail-key table)
               sstable-path (get-sstable-path dir id)]
           (if (data/byte-array-smaller-or-equal? to-key head-key)
-            (persistent! pairs)
+            (->> pairs .entrySet (map (fn [e] [(.getKey e) (.getValue e)])))
             (recur
              (if (data/byte-array-smaller-or-equal? from-key tail-key)
                (reduce
-                #(conj! %1 %2)
+                (fn [tree-map [k d]]
+                  (.put tree-map k d)
+                  tree-map)
                 pairs
                 (io/scan-pairs sstable-path from-key to-key))
                pairs)
