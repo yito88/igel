@@ -1,0 +1,45 @@
+name: Format and Lint
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  check:
+
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        java: [ '11', '17' ]
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Setup Java
+      uses: actions/setup-java@v3
+      with:
+        java-version: ${{ matrix.java }}
+        distribution: 'temurin'
+
+    - name: Cache m2 repository
+      uses: actions/cache@v3
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/project.clj') }}
+        restore-keys: |
+          ${{ runner.os }}-m2-
+
+    - name: Install clojure tools
+      uses: DeLaGuardo/setup-clojure@11.0
+      with:
+        lein: 2.9.8
+        clj-kondo: 2023.05.26
+        cljfmt: 0.10.4
+
+    - name: Format check
+      run: cljfmt check
+
+    - name: Lint check
+      run: clj-kondo --lint .

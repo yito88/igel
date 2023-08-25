@@ -1,6 +1,5 @@
 (ns igel.core
-  (:require [clojure.tools.logging :as logging]
-            [igel.data :as data]
+  (:require [igel.data :as data]
             [igel.io :as io]
             [igel.memtable :refer [create-memtable]]
             [igel.sstable :refer [->TableInfo
@@ -25,20 +24,17 @@
       :else
       (let [[m-key m-data] (first m-pairs)
             [t-key t-data] (first t-pairs)
-            [m-rest t-rest] (cond
-                              (data/byte-array-equals? m-key t-key)
-                              (do
-                                (conj! pairs [m-key m-data])
-                                [(rest m-pairs) (rest t-pairs)])
-                              (data/byte-array-smaller? m-key t-key)
-                              (do
-                                (conj! pairs [m-key m-data])
-                                [(rest m-pairs) t-pairs])
-                              (data/byte-array-smaller? t-key m-key)
-                              (do
-                                (conj! pairs [t-key t-data])
-                                [m-pairs (rest t-pairs)]))]
-        (recur pairs m-rest t-rest)))))
+            [updated m-rest t-rest] (cond
+                                      (data/byte-array-equals? m-key t-key)
+                                      [(conj! pairs [m-key m-data])
+                                       (rest m-pairs) (rest t-pairs)]
+                                      (data/byte-array-smaller? m-key t-key)
+                                      [(conj! pairs [m-key m-data])
+                                       (rest m-pairs) t-pairs]
+                                      (data/byte-array-smaller? t-key m-key)
+                                      [(conj! pairs [t-key t-data])
+                                       m-pairs (rest t-pairs)])]
+        (recur updated m-rest t-rest)))))
 
 (defrecord KVS [config memtable tree sstable-id]
   store/IStoreRead

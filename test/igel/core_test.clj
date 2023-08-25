@@ -1,5 +1,5 @@
 (ns igel.core-test
-  (:require [clojure.test :refer :all]
+  (:require [clojure.test :refer [deftest testing]]
             [igel.core :as igel]
             [igel.data :as data]))
 
