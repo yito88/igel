@@ -7,5 +7,6 @@
                  [org.clojure/data.fressian "1.0.0"]
                  [org.clojure/tools.logging "1.2.4"]
                  [blossom "1.0.0"]]
-  :profiles {:uberjar {:aot :all
+  :profiles {:dev {:plugins [[lein-cloverage "1.2.4"]]}
+             :uberjar {:aot :all
                        :jvm-opts ["-Dclojure.compiler.direct-linking=true"]}})
