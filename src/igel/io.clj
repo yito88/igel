@@ -69,22 +69,23 @@
           (blossom/add bf k))))
     [bf head-key tail-key]))
 
-(defn- read-data! [in-stream]
+(defn- read-data!
+  "Return the byte-array of the data segment from the input stream.
+  If the data length is zero, it returns nil."
+  [in-stream]
   (let [buf (make-array Byte/TYPE LEN_SIZE)
-        read-len (.read in-stream buf 0 LEN_SIZE)]
-    (when (= read-len LEN_SIZE)
-      (let [data-len (deserialize-long buf)
-            buf (make-array Byte/TYPE data-len)
+        read-len (.read in-stream buf 0 LEN_SIZE)
+        data-len (deserialize-long buf)]
+    (when (and (= read-len LEN_SIZE) (> data-len 0))
+      (let [buf (make-array Byte/TYPE data-len)
             read-len (.read in-stream buf 0 data-len)
             crc-buf (make-array Byte/TYPE CRC_SIZE)
             crc-len (.read in-stream crc-buf 0 CRC_SIZE)]
-        (if (zero? data-len)
-          nil ;; the data was deleted
-          ;; TODO throw an exception when unexpected length
-          (when (and (= read-len data-len)
-                     (= crc-len CRC_SIZE)
-                     (valid-data? buf (deserialize-long crc-buf)))
-            buf))))))
+        ;; TODO throw an exception when unexpected length or crc error
+        (when (and (= read-len data-len)
+                   (= crc-len CRC_SIZE)
+                   (valid-data? buf (deserialize-long crc-buf)))
+          buf)))))
 
 (defn- read-kv-pair!
   [in-stream]

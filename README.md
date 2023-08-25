@@ -1,11 +1,12 @@
 # Igel
 
-Simpl Key-Value Store
+Simple Key-Value Store
 
 ## TODO
 - WAL
 - Compaction
 - Error handling
+- Background flush/compaction
 - Concurrency
 - Indexileing
 

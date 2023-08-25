@@ -7,8 +7,7 @@
                                   get-sstable-path
                                   restore-tree-store
                                   update-tree]]
-            [igel.store :as store
-             :refer [flush! select scan write! delete!]])
+            [igel.store :as store])
   (:gen-class))
 
 (defn- merge-scan-results
@@ -45,12 +44,12 @@
   store/IStoreRead
   (select
     [_ k]
-    (let [data (or (select @memtable k) (select @tree k))]
+    (let [data (or (store/select @memtable k) (store/select @tree k))]
       (when (data/is-valid? data) (:value data))))
   (scan
     [_ from-key to-key]
-    (->> (merge-scan-results (scan @memtable from-key to-key)
-                             (scan @tree from-key to-key))
+    (->> (merge-scan-results (store/scan @memtable from-key to-key)
+                             (store/scan @tree from-key to-key))
          (filter (fn [[_ data]] (data/is-valid? data)))
          (map (fn [[k data]] [k (:value data)]))))
 
@@ -58,12 +57,12 @@
   (write!
     [this k v]
     ;; TODO: wait for WAL
-    (when (> (write! @memtable k v) (:memtable-size config))
-      (flush! this)))
+    (when (> (store/write! @memtable k v) (:memtable-size config))
+      (store/flush! this)))
   (delete!
     [this k]
-    (when (> (delete! @memtable k) (:memtable-size config))
-      (flush! this)))
+    (when (> (store/delete! @memtable k) (:memtable-size config))
+      (store/flush! this)))
 
   store/IFlush
   (flush!
@@ -76,6 +75,8 @@
                                              (:sstable-dir config)
                                              new-id))]
       (swap! tree #(update-tree % new-id (->TableInfo bf head-key tail-key))))))
+
+;; ==== Main APIs ====
 
 (defn load-config
   "Load the KVS config from config.toml"
@@ -91,87 +92,26 @@
         [treestore last-index]  (restore-tree-store config)]
     (->KVS config (atom memtable) (atom treestore) (atom last-index))))
 
-;; TODO: Move to test
-(def NUM_ITEMS 128)
-(defn -main
-  "I don't do a whole lot ... yet."
-  [& config-path]
-  ; sequencial crud test
-  (let [kvs (gen-kvs config-path)]
-    ;; insert
-    (doseq [i (range 0 NUM_ITEMS)]
-      (let [k (.getBytes (str "key" i))
-            v (.getBytes (str "val" i))]
-        (write! kvs k v)))
-    ;; delete
-    (doseq [i (range 0 NUM_ITEMS)]
-      (when (zero? (mod i 16))
-        (let [k (.getBytes (str "key" i))]
-          (delete! kvs k))))
-    ;; update
-    (doseq [i (range 0 NUM_ITEMS)]
-      (when (zero? (mod i 32))
-        (let [k (.getBytes (str "key" i))
-              v (.getBytes (str "overwritten-val" i))]
-          (write! kvs k v))))
-    ;; select all
-    (doseq [i (range 0 NUM_ITEMS)]
-      (let [k (.getBytes (str "key" i))
-            v (cond
-                (zero? (mod i 32)) (.getBytes (str "overwritten-val" i))
-                (zero? (mod i 16)) nil
-                :else (.getBytes (str "val" i)))
-            actual (select kvs k)]
-        (cond
-          (and (nil? v) (nil? actual))
-          (println "OK: key:" (String. k) "value was deleted")
+(defn select
+  "Read the value corresponding to the given key.
+  If the key doesn't exist, it returns nil."
+  [^KVS kvs ^bytes k]
+  (store/select kvs k))
 
-          (and (nil? v) (seq actual))
-          (println "ERROR: key:" (String. k) "the value was not deleted unexpectedly."
-                   "actual:" (String. actual))
+(defn scan
+  "Read the key-value pairs between the `from-key` and the `to-key`.
+  This range should include `from-key` and not include `to-key`.
+  It returns key-value pair vectors like [[k0 v0] [k1 v1]].
+  The keys should be ordered by ascending."
+  [^KVS kvs ^bytes from-key ^bytes to-key]
+  (store/scan kvs from-key to-key))
 
-          (and (seq v) (nil? actual))
-          (println "ERROR: key:" (String. k) "the value was deleted unexpectedly."
-                   "expected:" (String. v))
+(defn write!
+  "Write the new value correponding to the given key."
+  [^KVS kvs ^bytes k ^bytes v]
+  (store/write! kvs k v))
 
-          :else
-          (if (java.util.Arrays/equals actual v)
-            (println "OK: key:" (String. k) "value:" (String. actual))
-            (println "ERROR: key:" (String. k)
-                     "value:" (String. actual)
-                     "expect:" (String. v))))))
-    ;; scan
-    (doseq [group (partition 16 (sort-by str (range 0 NUM_ITEMS)))]
-      (let [from-key (.getBytes (str "key" (first group)))
-            to-key (.getBytes (str "key" (last group) 0))
-            expect (filter #(not (nil? %))
-                           (for [i group]
-                             (cond
-                               (zero? (mod i 32)) [(.getBytes (str "key" i))
-                                                   (.getBytes
-                                                    (str "overwritten-val" i))]
-                               (zero? (mod i 16)) nil
-                               :else [(.getBytes (str "key" i))
-                                      (.getBytes (str "val" i))])))
-            actual (scan kvs from-key to-key)]
-        (if (= (count expect) (count actual))
-          (if (every? true?
-                      (map
-                       (fn [[k1 v1] [k2 v2]]
-                         (and (data/byte-array-equals? k1 k2)
-                              (data/byte-array-equals? v1 v2)))
-                       expect
-                       actual))
-            (println "OK: " (map (fn [[k v]] [(String. k) (String. v)]) actual))
-            (do
-              (println "ERROR: some items of pairs is wrong")
-              (println "       expected:"
-                       (map (fn [[k v]] [(String. k) (String. v)]) expect))
-              (println "       actual:"
-                       (map (fn [[k v]] [(String. k) (String. v)]) actual))))
-          (do
-            (println "ERROR: the number of pairs is wrong")
-            (println "       expected:"
-                     (map (fn [[k v]] [(String. k) (String. v)]) expect))
-            (println "       actual:"
-                     (map (fn [[k v]] [(String. k) (String. v)]) actual))))))))
+(defn delete!
+  "Delete the given key from the key-value store."
+  [^KVS kvs ^bytes k]
+  (store/delete! kvs k))
