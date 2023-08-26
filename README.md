@@ -8,7 +8,7 @@ Simple Key-Value Store
 - Error handling
 - Background flush/compaction
 - Concurrency
-- Indexileing
+- Indexing
 
 ## Installation
 

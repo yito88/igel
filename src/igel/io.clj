@@ -41,33 +41,44 @@
 (def ^:private ^:const LEN_SIZE Long/BYTES)
 (def ^:private ^:const CRC_SIZE Long/BYTES)
 
+(defn- write-bytes!
+  [^BufferedOutputStream out-stream ^bytes b]
+  (doto out-stream
+    (.write (serialize-long (count b)))
+    (.write b)
+    (.write (serialize-long (calc-crc32 b)))))
+
 (defn flush!
   [memtable file-path]
   (let [bf (blossom/make-filter {:hash-size "SHA-256" :size 1024})
         entry-set (memtable/entry-set memtable)
         head-key (-> entry-set first first)
-        tail-key (-> entry-set last first)]
+        tail-key (-> entry-set last first)
+        file-stream (FileOutputStream. file-path)]
     (logging/info "Starting flush to SSTable" file-path head-key tail-key)
-    (with-open [out-stream (BufferedOutputStream. (FileOutputStream. file-path) 16384)]
+    (with-open [out-stream (BufferedOutputStream. file-stream 16384)]
       (doseq [entry entry-set]
         (let [k (first entry)
               data (second entry)
               value (:value data)]
           ;; write the key
-          (doto out-stream
-            (.write (serialize-long (count k)))
-            (.write k)
-            (.write (serialize-long (calc-crc32 k))))
+          (write-bytes! out-stream k)
           ;; write the value
           ;; if it's deleted, write only the length 0
           (if (:deleted? data)
             (.write out-stream (serialize-long 0))
-            (doto out-stream
-              (.write (serialize-long (count value)))
-              (.write value)
-              (.write (serialize-long (calc-crc32 value)))))
+            (write-bytes! out-stream value))
           (blossom/add bf k))))
+    ;; fsync
+    (-> file-stream .getChannel (.force true))
     [bf head-key tail-key]))
+
+(defn append-wal!
+  [^BufferedOutputStream out-stream [^bytes k ^data/Data data]]
+  (write-bytes! out-stream k)
+  (if (:deleted? data)
+    (.write out-stream (serialize-long 0))
+    (write-bytes! out-stream (:value data))))
 
 (defn- read-data!
   "Return the byte-array of the data segment from the input stream.
