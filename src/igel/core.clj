@@ -1,12 +1,14 @@
 (ns igel.core
-  (:require [igel.data :as data]
+  (:require [clojure.core.async :as async]
+            [igel.data :as data]
             [igel.io :as io]
             [igel.memtable :refer [create-memtable]]
             [igel.sstable :refer [->TableInfo
                                   get-sstable-path
                                   restore-tree-store
                                   update-tree]]
-            [igel.store :as store])
+            [igel.store :as store]
+            [igel.wal :as wal])
   (:gen-class))
 
 (defn- merge-scan-results
@@ -36,7 +38,7 @@
                                        m-pairs (rest t-pairs)])]
         (recur updated m-rest t-rest)))))
 
-(defrecord KVS [config memtable tree sstable-id]
+(defrecord KVS [config memtable tree sstable-id wal-writer wal-chan]
   store/IStoreRead
   (select
     [_ k]
@@ -52,7 +54,9 @@
   store/IStoreMutate
   (write!
     [this k v]
-    ;; TODO: wait for WAL
+    (let [comp-chan (async/chan)]
+      (async/>!! wal-chan [k v comp-chan])
+      (async/<!! comp-chan))
     (when (> (store/write! @memtable k v) (:memtable-size config))
       (store/flush! this)))
   (delete!
@@ -79,14 +83,19 @@
   [_config-path]
   ; TODO: load from the file
   {:sstable-dir "./data"
-   :memtable-size 1024})
+   :memtable-size 1024
+   :wal-dir "./data"
+   :sync-window-time 200})
 
 (defn gen-kvs
   [config-path]
   (let [config (load-config config-path)
         memtable (create-memtable)
-        [treestore last-index]  (restore-tree-store config)]
-    (->KVS config (atom memtable) (atom treestore) (atom last-index))))
+        [treestore last-index]  (restore-tree-store config)
+        wal-chan (async/chan)
+        wal-writer (wal/spawn-wal-writer wal-chan config)]
+    (->KVS config (atom memtable) (atom treestore) (atom last-index)
+           wal-writer wal-chan)))
 
 (defn select
   "Read the value corresponding to the given key.
