@@ -68,9 +68,9 @@
           (if (:deleted? data)
             (.write out-stream (serialize-long 0))
             (write-bytes! out-stream value))
-          (blossom/add bf k))))
-    ;; fsync
-    (-> file-stream .getChannel (.force true))
+          (blossom/add bf k)))
+      ;; fsync
+      (-> file-stream .getChannel (.force true)))
     [bf head-key tail-key]))
 
 (defn append-wal!

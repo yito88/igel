@@ -55,12 +55,15 @@
   (write!
     [this k v]
     (let [comp-chan (async/chan)]
-      (async/>!! wal-chan [k v comp-chan])
+      (async/>!! wal-chan [k (data/new-data v) comp-chan])
       (async/<!! comp-chan))
     (when (> (store/write! @memtable k v) (:memtable-size config))
       (store/flush! this)))
   (delete!
     [this k]
+    (let [comp-chan (async/chan)]
+      (async/>!! wal-chan [k (data/deleted-data) comp-chan])
+      (async/<!! comp-chan))
     (when (> (store/delete! @memtable k) (:memtable-size config))
       (store/flush! this)))
 
