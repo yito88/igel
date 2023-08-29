@@ -1,0 +1,11 @@
+# Igel config
+
+sstable-dir: './data'
+
+wal-dir: './data'
+
+# in byte
+memtable-size: 1024
+
+# in milliseconds
+sync-window-time: 200

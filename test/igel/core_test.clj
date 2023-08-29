@@ -6,7 +6,7 @@
 (def NUM_ITEMS 256)
 
 (deftest sequencial-crud-test
-  (let [config-path nil
+  (let [config-path "./config.yaml"
         kvs (igel/gen-kvs config-path)]
     ;; insert
     (doseq [i (range 0 NUM_ITEMS)]

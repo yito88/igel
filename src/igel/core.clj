@@ -1,5 +1,6 @@
 (ns igel.core
   (:require [clojure.core.async :as async]
+            [igel.config :as config]
             [igel.data :as data]
             [igel.io :as io]
             [igel.memtable :refer [create-memtable]]
@@ -81,18 +82,9 @@
 
 ;; ==== Main APIs ====
 
-(defn load-config
-  "Load the KVS config from config.toml"
-  [_config-path]
-  ; TODO: load from the file
-  {:sstable-dir "./data"
-   :memtable-size 1024
-   :wal-dir "./data"
-   :sync-window-time 200})
-
 (defn gen-kvs
   [config-path]
-  (let [config (load-config config-path)
+  (let [config (config/load-config config-path)
         memtable (create-memtable)
         [treestore last-index]  (restore-tree-store config)
         wal-chan (async/chan)
