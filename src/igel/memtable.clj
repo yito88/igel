@@ -1,5 +1,6 @@
 (ns igel.memtable
-  (:require [igel.data :as data]
+  (:require [clojure.core.async :as async]
+            [igel.data :as data]
             [igel.store :as store :refer [select scan write! delete!]]))
 
 (defrecord MemStore [^java.util.TreeMap mem]
@@ -29,7 +30,7 @@
     [_ k]
     (.put mem k (data/deleted-data))))
 
-(defrecord Memtable [mem size]
+(defrecord Memtable [mem wal-chan size]
   store/IStoreRead
   ;; TODO: need concurrent BTreeMap
   (select
@@ -45,18 +46,43 @@
   (write!
     [_ k v]
     (locking mem
-      (write! mem k v)
-      (swap! size (partial + (count k) (count v)))))
+      (let [comp-chan (async/chan)]
+        (when-not (async/>!! wal-chan [k (data/new-data v) comp-chan])
+          (throw ex-info
+                 "Write failed due to memtable switching"
+                 {:retriable true}))
+        (write! mem k v)
+        (condp = (async/<!! comp-chan)
+          :done (swap! size (partial + (count k) (count v)))
+          nil (throw ex-info
+                     "Write failed due to memtable switching"
+                     {:retriable true})
+          (throw ex-info
+                 "Write failed"
+                 {:retriable false})))))
   (delete!
     [_ k]
     (locking mem
-      (delete! mem k)
-      (swap! size (partial + (count k))))))
+      (let [comp-chan (async/chan)]
+        (when-not (async/>!! wal-chan [k (data/deleted-data) comp-chan])
+          (throw ex-info
+                 "Delete failed due to memtable switching"
+                 {:retriable true}))
+        (delete! mem k)
+        (condp = (async/<!! comp-chan)
+          :done (swap! size (partial + (count k)))
+          nil (throw ex-info
+                     "Delete failed due to memtable switching"
+                     {:retriable true})
+          (throw ex-info
+                 "Delete failed"
+                 {:retriable false}))))))
 
 (defn create-memtable
   "Create the memtable handler"
-  []
+  [wal-chan]
   (->Memtable (->MemStore (new java.util.TreeMap (data/byte-array-comparator)))
+              wal-chan
               (atom 0)))
 
 (defn entry-set

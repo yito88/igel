@@ -3,6 +3,7 @@
             [igel.config :as config]
             [igel.data :as data]
             [igel.io :as io]
+            [igel.flush :as f]
             [igel.memtable :refer [create-memtable]]
             [igel.sstable :refer [->TableInfo
                                   get-sstable-path
@@ -39,7 +40,7 @@
                                        m-pairs (rest t-pairs)])]
         (recur updated m-rest t-rest)))))
 
-(defrecord KVS [config memtable tree sstable-id wal-writer wal-chan]
+(defrecord KVS [config memtable tree sstable-id wal-writer]
   store/IStoreRead
   (select
     [_ k]
@@ -55,16 +56,10 @@
   store/IStoreMutate
   (write!
     [this k v]
-    (let [comp-chan (async/chan)]
-      (async/>!! wal-chan [k (data/new-data v) comp-chan])
-      (async/<!! comp-chan))
     (when (> (store/write! @memtable k v) (:memtable-size config))
       (store/flush! this)))
   (delete!
     [this k]
-    (let [comp-chan (async/chan)]
-      (async/>!! wal-chan [k (data/deleted-data) comp-chan])
-      (async/<!! comp-chan))
     (when (> (store/delete! @memtable k) (:memtable-size config))
       (store/flush! this)))
 
@@ -80,17 +75,35 @@
                                              new-id))]
       (swap! tree #(update-tree % new-id (->TableInfo bf head-key tail-key))))))
 
+(defn spawn-bg-coordinator
+  [memtable tree sstable-id config]
+  (let [wal-data-chan (async/chan)
+        wal-end-chan (async/chan)
+        flush-writer-end-chan (async/chan)]
+    (f/spawn-flush-writer memtable tree sstable-id flush-writer-end-chan config)
+    (async/go-loop [wal-data-chan wal-data-chan
+                    wal-end-chan wal-end-chan
+                    _wal-writer (wal/spawn-wal-writer wal-data-chan wal-end-chan config)]
+      (if (nil? (async/<!! wal-end-chan))
+        (let [wal-data-chan (async/chan)
+              wal-end-chan (async/chan)]
+          ;; run a new wal writer
+          (recur wal-data-chan
+                 wal-end-chan
+                 (wal/spawn-wal-writer wal-data-chan wal-end-chan config)))
+        (throw ex-info "unreachable")))))
+
 ;; ==== Main APIs ====
 
 (defn gen-kvs
   [config-path]
   (let [config (config/load-config config-path)
-        memtable (create-memtable)
         [treestore last-index]  (restore-tree-store config)
         wal-chan (async/chan)
-        wal-writer (wal/spawn-wal-writer wal-chan config)]
+        wal-writer (wal/spawn-wal-writer wal-chan config)
+        memtable (create-memtable wal-chan)]
     (->KVS config (atom memtable) (atom treestore) (atom last-index)
-           wal-writer wal-chan)))
+           wal-writer)))
 
 (defn select
   "Read the value corresponding to the given key.
