@@ -12,7 +12,3 @@
   "Interface for mutations to the data store"
   (write! [this ^bytes k ^bytes v])
   (delete! [this ^bytes k]))
-
-(defprotocol IFlush
-  "Flush the memtable and update KVS state"
-  (flush! [this]))

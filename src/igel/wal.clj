@@ -18,8 +18,8 @@
                                   ;; when nil, this writer will be closed
                                   (when-not (nil? ret)
                                     (io/append-wal! out-stream [k d])
-                                    (conj! comp-channels comp-chan)
-                                    (-> file-stream .getChannel (.force true))))
+                                    (-> file-stream .getChannel (.force true))
+                                    (conj! comp-channels comp-chan)))
                        window-chan ([]
                                     (if (> (count comp-channels) 0)
                                       (do

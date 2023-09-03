@@ -48,35 +48,27 @@
     (locking mem
       (let [comp-chan (async/chan)]
         (when-not (async/>!! wal-chan [k (data/new-data v) comp-chan])
-          (throw ex-info
-                 "Write failed due to memtable switching"
-                 {:retriable true}))
+          (throw (ex-info "Write failed due to memtable switching"
+                          {:retriable true})))
         (write! mem k v)
-        (condp = (async/<!! comp-chan)
+        (case (async/<!! comp-chan)
           :done (swap! size (partial + (count k) (count v)))
-          nil (throw ex-info
-                     "Write failed due to memtable switching"
-                     {:retriable true})
-          (throw ex-info
-                 "Write failed"
-                 {:retriable false})))))
+          nil (throw (ex-info "Write failed due to memtable switching"
+                              {:retriable true}))
+          (throw (ex-info "Write failed" {:retriable false}))))))
   (delete!
     [_ k]
     (locking mem
       (let [comp-chan (async/chan)]
         (when-not (async/>!! wal-chan [k (data/deleted-data) comp-chan])
-          (throw ex-info
-                 "Delete failed due to memtable switching"
-                 {:retriable true}))
+          (throw (ex-info "Delete failed due to memtable switching"
+                          {:retriable true})))
         (delete! mem k)
-        (condp = (async/<!! comp-chan)
+        (case (async/<!! comp-chan)
           :done (swap! size (partial + (count k)))
-          nil (throw ex-info
-                     "Delete failed due to memtable switching"
-                     {:retriable true})
-          (throw ex-info
-                 "Delete failed"
-                 {:retriable false}))))))
+          nil (throw (ex-info "Delete failed due to memtable switching"
+                              {:retriable true}))
+          (throw (ex-info "Delete failed" {:retriable false})))))))
 
 (defn create-memtable
   "Create the memtable handler"
