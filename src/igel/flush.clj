@@ -7,13 +7,9 @@
              [igel.sstable :as sstable])
   (:import (java.io FileOutputStream BufferedOutputStream)))
 
-(def ^:const ^:private CHECK_INTERVAL_TIME 1000)
-
 (defn- switch-memtable!
-  [memtable]
-  (async/close! (:wal-chan @memtable))
-  (let [wal-chan (async/chan)
-        [old _] (reset-vals! memtable (memtable/create-memtable wal-chan))]
+  [memtable wal-chan]
+  (let [[old _] (reset-vals! memtable (memtable/create-memtable wal-chan))]
     old))
 
 (defn flush!
@@ -23,7 +19,7 @@
         head-key (-> entry-set first first)
         tail-key (-> entry-set last first)
         file-stream (FileOutputStream. file-path)]
-    (logging/info "Starting flush to SSTable" file-path head-key tail-key)
+    (logging/info "Starting flush to SSTable" file-path)
     (with-open [out-stream (BufferedOutputStream. file-stream 16384)]
       (doseq [entry entry-set]
         (let [k (first entry)
@@ -42,27 +38,31 @@
     [bf head-key tail-key]))
 
 (defn spawn-flush-writer
-  [memtable tree sstable-id end-chan config]
+  [memtable tree sstable-id req-chan flush-wal-chan wal-switch-chan config]
+  ;; TODO: error handling
   (let [threshold (:memtable-size config)
-        interval (or (:flush_check_interval config) CHECK_INTERVAL_TIME)]
-    ;; TODO: error handling
-    (async/go-loop [interval-chan (async/timeout interval)]
-      (let [signal (async/alt!
-                     end-chan ([] :close)
-                     interval-chan ([]
-                                    (if (> (:size @memtable) threshold)
-                                      :flush
-                                      :continue)))]
-        (println "DEBUG:" signal)
-        (case signal
-          :flush (let [old-memtable (switch-memtable! memtable)
-                       new-id (swap! sstable-id inc)
-                       file-path (sstable/get-sstable-path
-                                  (:sstable-dir config)
-                                  new-id)
-                       [bf head-key tail-key] (flush! old-memtable file-path)
-                       table-info (sstable/->TableInfo bf head-key tail-key)]
-                   (swap! tree #(sstable/update-tree % new-id table-info))
-                   (recur (async/timeout interval)))
-          :close (async/close! end-chan)
-          (recur (async/timeout interval)))))))
+        new-id (swap! sstable-id (partial + 2))
+        file-path (sstable/get-sstable-path
+                   (:sstable-dir config)
+                   new-id)]
+    (async/go-loop []
+      (let [shutdown? (nil? (async/<! req-chan))]
+        (if (or shutdown? (> (deref (:size @memtable)) threshold))
+          (do
+            ;; close the data channel not to send data to the WAL thread
+            (async/close! (:wal-chan @memtable))
+            ;; notify the memtable switching
+            (async/>! wal-switch-chan :switch)
+            ;; wait for the current WAL sync
+            (if (= :flush (async/<! req-chan))
+              (let [wal-chan (async/chan)
+                    table-info (-> (switch-memtable! memtable wal-chan)
+                                   (flush! file-path)
+                                   (apply sstable/->TableInfo))]
+              ;; Send a new wal-chan to the WAL writer to receive new requests
+                (async/>! flush-wal-chan wal-chan)
+                (swap! tree #(sstable/update-tree % new-id table-info))
+                (when-not shutdown? (recur)))
+              (throw (ex-info "Flush writer received an unexpected request"
+                              {:fatal "flush-writer"}))))
+          (recur))))))

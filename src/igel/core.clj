@@ -10,6 +10,30 @@
             [igel.wal :as wal])
   (:gen-class))
 
+(defrecord Coordinator [wal-handler flush-writer flush-req-chan])
+
+(defn spawn-bg-coordinator
+  [memtable tree sstable-id config]
+  (let [flush-req-chan (async/chan)
+        flush-wal-chan (async/chan)
+        wal-switch-chan (async/chan)]
+    (->Coordinator
+     (wal/spawn-wal-writer (:wal-chan @memtable)
+                           flush-req-chan
+                           flush-wal-chan
+                           wal-switch-chan
+                           config)
+     (f/spawn-flush-writer memtable tree sstable-id
+                           flush-req-chan
+                           flush-wal-chan
+                           wal-switch-chan
+                           config)
+     flush-req-chan)))
+
+(defn- terminate-flush-writer
+  [coordinator]
+  (async/close! (:flush-req-chan coordinator)))
+
 (defn- merge-scan-results
   [mem-ret tree-ret]
   (loop [pairs (transient [])
@@ -53,30 +77,41 @@
   store/IStoreMutate
   (write!
     [_ k v]
-    (store/write! @memtable k v))
+    (loop [retries (:write-retries config)]
+      (if (try
+            (store/write! @memtable k v)
+            false ;; break the loop when it succeeded
+            (catch Exception e
+              (when-not (-> e ex-data :retriable)
+                (throw (ex-info "Write failed" {:retriable false})))
+              (pos? retries)))
+        (do
+          (Thread/sleep 100)
+          (recur (dec retries)))
+        (when (zero? retries)
+          (throw (ex-info "Write failed repeatedly" {:retriable false}))))))
   (delete!
     [_ k]
-    (store/delete! @memtable k)))
+    (loop [retries (:write-retries config)]
+      (if (try
+            (store/delete! @memtable k)
+            false ;; break the loop when it succeeded
+            (catch Exception e
+              (when-not (-> e ex-data :retriable)
+                (throw (ex-info "Delete failed" {:retriable false})))
+              (pos? retries)))
+        (do
+          (Thread/sleep 100)
+          (recur (dec retries)))
+        (when (zero? retries)
+          (throw (ex-info "Delete failed repeatedly" {:retriable false}))))))
 
-(defn spawn-bg-coordinator
-  [memtable tree sstable-id config]
-  (let [flush-writer-end-chan (async/chan)]
-    (f/spawn-flush-writer memtable tree sstable-id flush-writer-end-chan config)
-    ;; check and rerun a wal writer
-    (async/go-loop [wal-data-chan (:wal-chan @memtable)
-                    wal-end-chan (async/chan)
-                    _wal-writer (wal/spawn-wal-writer wal-data-chan wal-end-chan config)]
-      (if (nil? (async/<!! wal-end-chan))
-        (let [wal-data-chan (async/chan)
-              wal-end-chan (async/chan)]
-          ;; run a new wal writer
-          (recur wal-data-chan
-                 wal-end-chan
-                 (wal/spawn-wal-writer wal-data-chan wal-end-chan config)))
-        (throw (ex-info "unreachable" {:type :coordinator}))))
-    ;; shutdown
-    (info "Shutting down...")
-    (async/>!! flush-writer-end-chan :close)))
+  Object
+  (finalize [_]
+    (info "KVS is shutting down...")
+    ;; close WAL channel to terminate the current WAL writer
+    (async/close! (:wal-chan @memtable))
+    (terminate-flush-writer coordinator)))
 
 ;; ==== Main APIs ====
 
