@@ -2,11 +2,14 @@
 /classes
 /checkouts
 /data
+/test-data
 profiles.clj
 pom.xml
 pom.xml.asc
 *.jar
 *.class
+/.clj-kondo
+/.lsp
 /.lein-*
 /.nrepl-port
 /.prepl-port

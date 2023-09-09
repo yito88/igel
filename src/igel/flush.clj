@@ -13,7 +13,7 @@
   (let [[old _] (reset-vals! memtable (memtable/create-memtable wal-chan))]
     old))
 
-(defn flush-memtable!
+(defn- flush-memtable!
   [memtable file-path]
   (let [bf (blossom/make-filter {:hash-size "SHA-256" :size 1024})
         entry-set (memtable/entry-set memtable)
@@ -38,7 +38,7 @@
       (-> file-stream .getChannel (.force true)))
     [bf head-key tail-key]))
 
-(defn flush!
+(defn- flush!
   [memtable tree sstable-id flush-wal-chan config]
   (let [new-id @sstable-id
         file-path (sstable/get-sstable-path

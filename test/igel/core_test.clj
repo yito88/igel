@@ -1,12 +1,51 @@
 (ns igel.core-test
   (:require [clojure.test :refer [deftest is]]
+            [clojure.java.io :as io]
+            [clj-yaml.core :as yaml]
             [igel.core :as igel]
             [igel.data :as data]))
+
+;; If this env var is true, test directories will be left for debugging
+(def ^:private ^:const LEAVE_TEST_DIR "LEAVE_TEST_DIR")
+
+(defn- make-test-config
+  [data-dir]
+  {:sstable-dir (str data-dir "/sstable")
+   :wal-dir (str data-dir "/wal")
+   :memtable 1024
+   :sync-window-time 200})
+
+(defn- delete-test-dir!
+  [file-or-dir force?]
+  (when (or force? (not (System/getenv LEAVE_TEST_DIR)))
+    (if (.isDirectory file-or-dir)
+      (do
+        (doseq [i (.list file-or-dir)]
+          (delete-test-dir! (io/file (str file-or-dir \/ i)) force?))
+        (.delete file-or-dir))
+      (.delete file-or-dir))))
+
+(defn- setup-test!
+  [data-dir test-config]
+  (let [config-path (str data-dir "/config.yaml")]
+    ;; setup data-dir
+    (let [dir (io/file data-dir)]
+      (when (.exists dir)
+        (delete-test-dir! dir true))
+      (.mkdirs dir))
+    ;; make a config file
+    (with-open [writer (io/writer config-path)]
+      (.write writer (yaml/generate-string test-config)))
+
+    (println "making the directory:" data-dir)
+    config-path))
 
 (def NUM_ITEMS 512)
 
 (deftest sequencial-crud-test
-  (let [config-path "./config.yaml"
+  (let [data-dir (str "./test-data/sequencial-crud-test")
+        test-config (make-test-config data-dir)
+        config-path (setup-test! data-dir test-config)
         kvs (igel/gen-kvs config-path)]
     ;; insert
     (doseq [i (range 0 NUM_ITEMS)]
@@ -69,4 +108,5 @@
                      actual))
             (str "Some results were wrong:"
                  "\n  expected: " expect-results
-                 "\n  actual:   " actual-results))))))
+                 "\n  actual:   " actual-results))))
+    (delete-test-dir! (io/file data-dir) false)))
