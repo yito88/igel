@@ -6,14 +6,15 @@
 (def ^:const ^:private DEFAULT_WINDOW_TIME 200)
 
 (defn wal-file-path
-  [sstable-id config]
-  (str (:wal-dir config) \/ @sstable-id ".wal"))
+  [^long id config]
+  (str (:wal-dir config) \/ id ".wal"))
 
 (defn spawn-wal-writer
-  [sstable-id data-chan flush-req-chan flush-wal-chan config]
+  [wal-index data-chan flush-req-chan flush-wal-chan config]
   (io/make-dir (:wal-dir config))
-  (async/go-loop [data-chan data-chan]
-    (let [file-stream (FileOutputStream. (wal-file-path sstable-id config))
+  (async/go-loop [wal-id wal-index
+                  data-chan data-chan]
+    (let [file-stream (FileOutputStream. (wal-file-path wal-id config))
           out-stream (BufferedOutputStream. file-stream 4096)
           sync-window (or (:sync-window-time config) DEFAULT_WINDOW_TIME)
           window-chan (async/timeout sync-window)]
@@ -28,6 +29,7 @@
                          window-chan ([]
                                       (if (> (count comp-channels) 0)
                                         (do
+                                          (.flush out-stream)
                                           (-> file-stream .getFD .sync)
                                           (mapv #(async/>!! % :done)
                                                 (persistent! comp-channels))
@@ -44,4 +46,5 @@
             (recur channels))))
       ;; The current WAL loop finished
       ;; Wait for the new data-chan from the flush writer
-      (recur (async/<! flush-wal-chan)))))
+      (let [[wal-id data-chan] (async/<! flush-wal-chan)]
+        (recur wal-id data-chan)))))

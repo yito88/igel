@@ -17,7 +17,7 @@
   (let [flush-req-chan (async/chan)
         flush-wal-chan (async/chan)]
     (->BgWorkers
-     (wal/spawn-wal-writer sstable-id
+     (wal/spawn-wal-writer @sstable-id
                            (:wal-chan @memtable)
                            flush-req-chan
                            flush-wal-chan

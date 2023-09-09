@@ -33,10 +33,11 @@
               head-key (:head-key table)
               tail-key (:tail-key table)
               sstable-path (get-sstable-path id dir)]
-          (if (data/byte-array-smaller-or-equal? to-key head-key)
+          (if (empty? tables)
             (->> pairs .entrySet (map (fn [e] [(.getKey e) (.getValue e)])))
             (recur
-             (if (data/byte-array-smaller-or-equal? from-key tail-key)
+             (if (and (data/byte-array-smaller? head-key to-key)
+                      (data/byte-array-smaller-or-equal? from-key tail-key))
                (reduce
                 (fn [tree-map [k d]]
                   (.put tree-map k d)

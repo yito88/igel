@@ -3,7 +3,7 @@
             [igel.core :as igel]
             [igel.data :as data]))
 
-(def NUM_ITEMS 256)
+(def NUM_ITEMS 512)
 
 (deftest sequencial-crud-test
   (let [config-path "./config.yaml"
