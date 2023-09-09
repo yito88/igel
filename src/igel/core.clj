@@ -10,23 +10,21 @@
             [igel.wal :as wal])
   (:gen-class))
 
-(defrecord Coordinator [wal-handler flush-writer flush-req-chan])
+(defrecord BgWorkers [wal-handler flush-writer flush-req-chan])
 
-(defn spawn-bg-coordinator
+(defn spawn-bg-workers
   [memtable tree sstable-id config]
   (let [flush-req-chan (async/chan)
-        flush-wal-chan (async/chan)
-        wal-switch-chan (async/chan)]
-    (->Coordinator
-     (wal/spawn-wal-writer (:wal-chan @memtable)
+        flush-wal-chan (async/chan)]
+    (->BgWorkers
+     (wal/spawn-wal-writer sstable-id
+                           (:wal-chan @memtable)
                            flush-req-chan
                            flush-wal-chan
-                           wal-switch-chan
                            config)
      (f/spawn-flush-writer memtable tree sstable-id
                            flush-req-chan
                            flush-wal-chan
-                           wal-switch-chan
                            config)
      flush-req-chan)))
 
@@ -61,7 +59,7 @@
                                        m-pairs (rest t-pairs)])]
         (recur updated m-rest t-rest)))))
 
-(defrecord KVS [config memtable tree coordinator]
+(defrecord KVS [config memtable tree workers]
   store/IStoreRead
   (select
     [_ k]
@@ -109,9 +107,7 @@
   Object
   (finalize [_]
     (info "KVS is shutting down...")
-    ;; close WAL channel to terminate the current WAL writer
-    (async/close! (:wal-chan @memtable))
-    (terminate-flush-writer coordinator)))
+    (terminate-flush-writer workers)))
 
 ;; ==== Main APIs ====
 
@@ -120,8 +116,8 @@
   (let [config (config/load-config config-path)
         [tree sstable-id] (mapv atom (restore-tree-store config))
         memtable (atom (create-memtable (async/chan)))
-        coordinator (spawn-bg-coordinator memtable tree sstable-id config)]
-    (->KVS config memtable tree coordinator)))
+        workers (spawn-bg-workers memtable tree sstable-id config)]
+    (->KVS config memtable tree workers)))
 
 (defn select
   "Read the value corresponding to the given key.

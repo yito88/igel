@@ -1,8 +1,8 @@
 # Igel config
 
-sstable-dir: './data'
+sstable-dir: './data/sstable'
 
-wal-dir: './data'
+wal-dir: './data/wal'
 
 # in byte
 memtable-size: 1024

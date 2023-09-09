@@ -24,11 +24,17 @@
   (let [crc32 (doto (CRC32.) (.update data))]
     (= (.getValue crc32) crc)))
 
-(defn make-sstable-dir
-  [sstable-dir]
-  (let [dir (io/file sstable-dir)]
+(defn make-dir
+  [dir]
+  (let [dir (io/file dir)]
     (when-not (and (.exists dir) (.isDirectory dir))
       (.mkdirs dir))))
+
+(defn delete-file
+  [file-path]
+  (let [file (io/file file-path)]
+    (when (.exists file)
+      (.delete file))))
 
 ; Data format in an SSTable
 ; | Key0 | Value0 | Key1 | Value1 | ...

@@ -5,11 +5,15 @@
 
 (def ^:const ^:private DEFAULT_WINDOW_TIME 200)
 
+(defn wal-file-path
+  [sstable-id config]
+  (str (:wal-dir config) \/ @sstable-id ".wal"))
+
 (defn spawn-wal-writer
-  [data-chan flush-req-chan flush-wal-chan switch-chan config]
-  (async/go-loop [wal-index 0
-                  data-chan data-chan]
-    (let [file-stream (FileOutputStream. (str (:wal-dir config) \/ wal-index ".wal"))
+  [sstable-id data-chan flush-req-chan flush-wal-chan config]
+  (io/make-dir (:wal-dir config))
+  (async/go-loop [data-chan data-chan]
+    (let [file-stream (FileOutputStream. (wal-file-path sstable-id config))
           out-stream (BufferedOutputStream. file-stream 4096)
           sync-window (or (:sync-window-time config) DEFAULT_WINDOW_TIME)
           window-chan (async/timeout sync-window)]
@@ -17,29 +21,27 @@
       ;; TODO: error handling
       (loop [comp-channels (transient #{})]
         (let [channels (async/alt!
-                         switch-chan ([]
-                                          (println "DEBUG: closing wal loop for switching")
-                                      (-> file-stream .getFD .sync)
-                                      (.close out-stream)
-                                      (doseq [ch (persistent! comp-channels)]
-                                        (async/>! ch :done))
-                                      (async/>! flush-req-chan :flush))
                          data-chan ([[k d comp-chan]]
-                                    (println "DEBUG:" (nil? k))
-                                    (io/append-wal! out-stream [k d])
-                                    (conj! comp-channels comp-chan))
+                                    (when-not (nil? k)
+                                      (io/append-wal! out-stream [k d])
+                                      (conj! comp-channels comp-chan)))
                          window-chan ([]
                                       (if (> (count comp-channels) 0)
                                         (do
                                           (-> file-stream .getFD .sync)
                                           (mapv #(async/>!! % :done)
                                                 (persistent! comp-channels))
-                                          (println "DEBUG: sync-window")
                                           (async/>! flush-req-chan :try-flush)
                                           (transient #{}))
                                         comp-channels)))]
-          (when-not (nil? channels)
-            (recur channels)))))
-    (let [data-chan (async/<! flush-wal-chan)]
-      ;; the memtable has been switched
-      (recur (inc wal-index) data-chan))))
+          (if (nil? channels)
+            (do
+              (-> file-stream .getFD .sync)
+              (.close out-stream)
+              (mapv #(async/>!! % :done)
+                    (persistent! comp-channels))
+              (async/>! flush-req-chan :flush))
+            (recur channels))))
+      ;; The current WAL loop finished
+      ;; Wait for the new data-chan from the flush writer
+      (recur (async/<! flush-wal-chan)))))

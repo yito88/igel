@@ -4,7 +4,8 @@
              [clojure.tools.logging :as logging]
              [igel.io :as io]
              [igel.memtable :as memtable]
-             [igel.sstable :as sstable])
+             [igel.sstable :as sstable]
+             [igel.wal :as wal])
   (:import (java.io FileOutputStream BufferedOutputStream)))
 
 (defn- switch-memtable!
@@ -12,7 +13,7 @@
   (let [[old _] (reset-vals! memtable (memtable/create-memtable wal-chan))]
     old))
 
-(defn flush!
+(defn flush-memtable!
   [memtable file-path]
   (let [bf (blossom/make-filter {:hash-size "SHA-256" :size 1024})
         entry-set (memtable/entry-set memtable)
@@ -37,32 +38,41 @@
       (-> file-stream .getChannel (.force true)))
     [bf head-key tail-key]))
 
-(defn spawn-flush-writer
-  [memtable tree sstable-id req-chan flush-wal-chan wal-switch-chan config]
-  ;; TODO: error handling
-  (let [threshold (:memtable-size config)
-        new-id (swap! sstable-id (partial + 2))
+(defn flush!
+  [memtable tree sstable-id flush-wal-chan config]
+  (let [new-id @sstable-id
         file-path (sstable/get-sstable-path
-                   (:sstable-dir config)
-                   new-id)]
-    (async/go-loop []
-      (let [shutdown? (nil? (async/<! req-chan))]
-        (if (or shutdown? (> (deref (:size @memtable)) threshold))
-          (do
-            ;; close the data channel not to send data to the WAL thread
-            (async/close! (:wal-chan @memtable))
-            ;; notify the memtable switching
-            (async/>! wal-switch-chan :switch)
-            ;; wait for the current WAL sync
-            (if (= :flush (async/<! req-chan))
-              (let [wal-chan (async/chan)
-                    table-info (-> (switch-memtable! memtable wal-chan)
-                                   (flush! file-path)
-                                   (apply sstable/->TableInfo))]
-              ;; Send a new wal-chan to the WAL writer to receive new requests
-                (async/>! flush-wal-chan wal-chan)
-                (swap! tree #(sstable/update-tree % new-id table-info))
-                (when-not shutdown? (recur)))
-              (throw (ex-info "Flush writer received an unexpected request"
-                              {:fatal "flush-writer"}))))
-          (recur))))))
+                   new-id
+                   (:sstable-dir config))
+        wal-chan (async/chan)
+        table-info (apply sstable/->TableInfo
+                          (-> (switch-memtable! memtable wal-chan)
+                              (flush-memtable! file-path)))]
+    ;; Send a new wal-chan to the WAL writer to receive new requests
+    (async/>!! flush-wal-chan wal-chan)
+    ;; Update the tree
+    (swap! tree #(sstable/update-tree % new-id table-info))
+    ;; The previous WAL can be deleted
+    (io/delete-file (wal/wal-file-path sstable-id config))
+    ;; Update SSTable ID for the next
+    (swap! sstable-id (partial + 2))))
+
+(defn spawn-flush-writer
+  [memtable tree sstable-id req-chan flush-wal-chan config]
+  ;; TODO: error handling
+  (let [threshold (:memtable-size config)]
+    (async/go-loop [shutdown? false]
+      (case (async/<! req-chan)
+        :flush (do
+                 (flush! memtable tree sstable-id flush-wal-chan config)
+                 (when-not shutdown? (recur false)))
+        :try-flush (do
+                     (when (> (deref (:size @memtable)) threshold)
+                       ;; close the data channel not to send data to the WAL thread
+                       (async/close! (:wal-chan @memtable)))
+                     (recur false))
+        ;; when nil
+        (do
+          ;; close the data channel not to send data to the WAL thread
+          (async/close! (:wal-chan @memtable))
+          (recur true))))))

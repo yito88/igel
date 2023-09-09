@@ -5,8 +5,8 @@
             [igel.store :as store]))
 
 (defn get-sstable-path
-  [sstable-dir id]
-  (str sstable-dir "/" id ".sst"))
+  [id dir]
+  (str dir "/" id ".sst"))
 
 (defrecord TableInfo [bloom-filter head-key tail-key])
 
@@ -17,7 +17,7 @@
     (loop [tables (reverse sstables)]
       (let [[id table] (first tables)
             hit? (blossom/hit? (:bloom-filter table) k)
-            sstable-path (get-sstable-path dir id)
+            sstable-path (get-sstable-path id dir)
             v (io/read-value sstable-path k)]
         (if (and table hit? v)
           v
@@ -32,7 +32,7 @@
         (let [[id table] (first tables)
               head-key (:head-key table)
               tail-key (:tail-key table)
-              sstable-path (get-sstable-path dir id)]
+              sstable-path (get-sstable-path id dir)]
           (if (data/byte-array-smaller-or-equal? to-key head-key)
             (->> pairs .entrySet (map (fn [e] [(.getKey e) (.getValue e)])))
             (recur
@@ -48,7 +48,7 @@
 
 (defn restore-tree-store
   [{:keys [sstable-dir]}]
-  (io/make-sstable-dir sstable-dir)
+  (io/make-dir sstable-dir)
   ; TODO: restore from the exiting sstables
   [(->TreeStore sstable-dir []) 0])
 
