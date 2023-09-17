@@ -4,7 +4,7 @@
             [igel.config :as config]
             [igel.data :as data]
             [igel.flush :as f]
-            [igel.memtable :refer [create-memtable]]
+            [igel.memtable :refer [init-memtable]]
             [igel.sstable :refer [restore-tree-store]]
             [igel.store :as store]
             [igel.wal :as wal])
@@ -17,13 +17,11 @@
   (let [flush-req-chan (async/chan)
         flush-wal-chan (async/chan)]
     (->BgWorkers
-     (wal/spawn-wal-writer @sstable-id
-                           (:wal-chan @memtable)
+     (f/spawn-flush-writer memtable tree sstable-id
                            flush-req-chan
                            flush-wal-chan
                            config)
-     (f/spawn-flush-writer memtable tree sstable-id
-                           flush-req-chan
+     (wal/spawn-wal-writer flush-req-chan
                            flush-wal-chan
                            config)
      flush-req-chan)))
@@ -115,8 +113,15 @@
   [config-path]
   (let [config (config/load-config config-path)
         [tree sstable-id] (mapv atom (restore-tree-store config))
-        memtable (atom (create-memtable (async/chan)))
+        memtable (atom (init-memtable (async/chan) config))
         workers (spawn-bg-workers memtable tree sstable-id config)]
+    ;; wait for the first flush by checking the memtable size
+    (loop [retries (:write-retries config)]
+      (if (zero? retries)
+        (throw (ex-info "Initializing KVS failed" {:retriable true}))
+        (when (pos? (-> @memtable :size deref))
+          (Thread/sleep 1000)
+          (recur (dec retries)))))
     (->KVS config memtable tree workers)))
 
 (defn select

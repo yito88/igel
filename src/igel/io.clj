@@ -1,7 +1,13 @@
 (ns igel.io
   (:require [clojure.java.io :as io]
             [igel.data :as data])
-  (:import (java.io BufferedOutputStream)
+  (:import (java.io BufferedInputStream
+                    BufferedOutputStream
+                    ByteArrayInputStream
+                    ByteArrayOutputStream
+                    FileOutputStream
+                    ObjectInputStream
+                    ObjectOutputStream)
            (java.nio ByteBuffer)
            (java.util.zip CRC32)))
 
@@ -36,6 +42,10 @@
     (when (.exists file)
       (.delete file))))
 
+(defn list-files
+  [dir]
+  (file-seq (io/file dir)))
+
 ; Data format in an SSTable
 ; | Key0 | Value0 | Key1 | Value1 | ...
 ; - Each key or value's data format
@@ -59,13 +69,13 @@
   [^BufferedOutputStream out-stream [^bytes k ^data/Data data]]
   (write-bytes! out-stream k)
   (if (:deleted? data)
-    (.write out-stream (serialize-long 0))
+    (write-tombstone! out-stream)
     (write-bytes! out-stream (:value data))))
 
-(defn- read-data!
+(defn read-data!
   "Return the byte-array of the data segment from the input stream.
   If the data length is zero, it returns nil."
-  [in-stream]
+  [^BufferedInputStream in-stream]
   (let [buf (make-array Byte/TYPE LEN_SIZE)
         read-len (.read in-stream buf 0 LEN_SIZE)
         data-len (deserialize-long buf)]
@@ -80,13 +90,13 @@
                    (valid-data? buf (deserialize-long crc-buf)))
           buf)))))
 
-(defn- read-kv-pair!
-  [in-stream]
+(defn read-kv-pair!
+  [^BufferedInputStream in-stream]
   [(read-data! in-stream) (read-data! in-stream)])
 
 (defn read-value
   [file-path target-key]
-  (with-open [in-stream (clojure.java.io/input-stream file-path)]
+  (with-open [in-stream (io/input-stream file-path)]
     (loop []
       (let [[k v] (read-kv-pair! in-stream)]
         (if (data/byte-array-equals? k target-key)
@@ -97,7 +107,7 @@
 
 (defn scan-pairs
   [file-path from-key to-key]
-  (with-open [in-stream (clojure.java.io/input-stream file-path)]
+  (with-open [in-stream (io/input-stream file-path)]
     (loop [pairs (transient [])]
       (let [[k v] (read-kv-pair! in-stream)
             data (cond

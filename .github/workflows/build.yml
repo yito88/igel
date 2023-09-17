@@ -31,7 +31,7 @@ jobs:
           ${{ runner.os }}-m2-
 
     - name: Install dependencies
-      run: lein install
+      run: lein deps
 
     - name: Run test
       run: lein cloverage

@@ -12,7 +12,7 @@
   [data-dir]
   {:sstable-dir (str data-dir "/sstable")
    :wal-dir (str data-dir "/wal")
-   :memtable 1024
+   :memtable-size 1024
    :sync-window-time 200})
 
 (defn- delete-test-dir!
@@ -36,8 +36,6 @@
     ;; make a config file
     (with-open [writer (io/writer config-path)]
       (.write writer (yaml/generate-string test-config)))
-
-    (println "making the directory:" data-dir)
     config-path))
 
 (def NUM_ITEMS 512)
@@ -109,4 +107,31 @@
             (str "Some results were wrong:"
                  "\n  expected: " expect-results
                  "\n  actual:   " actual-results))))
+    (delete-test-dir! (io/file data-dir) false)))
+
+(deftest restore-test
+  (let [data-dir (str "./test-data/restore-test")
+        test-config (make-test-config data-dir)
+        config-path (setup-test! data-dir test-config)]
+    (let [kvs (igel/gen-kvs config-path)]
+      ;; insert
+      (doseq [i (range 0 NUM_ITEMS)]
+        (let [k (.getBytes (str "key" i))
+              v (.getBytes (str "val" i))]
+          (igel/write! kvs k v)))
+      (.finalize kvs))
+    ;; drop the current kvs and restart
+    (let [kvs (igel/gen-kvs config-path)]
+      (doseq [i (range 0 NUM_ITEMS)]
+        (let [k (.getBytes (str "key" i))
+              expected (.getBytes (str "val" i))
+              actual (igel/select kvs k)]
+          (is (data/byte-array-equals? expected actual)
+              (str "The result of `select` is wrong: "
+                   "\n  expected: " (if (nil? expected)
+                                      "nil"
+                                      (String. expected))
+                   "\n  actual:   " (if (nil? actual)
+                                      "nil"
+                                      (String. actual)))))))
     (delete-test-dir! (io/file data-dir) false)))

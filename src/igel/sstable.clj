@@ -1,14 +1,39 @@
 (ns igel.sstable
   (:require [blossom.core :as blossom]
+            [clojure.java.io :as java-io]
+            [clojure.tools.logging :as logging]
             [igel.data :as data]
             [igel.io :as io]
-            [igel.store :as store]))
+            [igel.store :as store])
+  (:import (java.io FileOutputStream BufferedOutputStream)))
 
 (defn get-sstable-path
   [id dir]
   (str dir "/" id ".sst"))
 
+(defn get-info-path
+  [id dir]
+  (str dir "/" id ".info"))
+
 (defrecord TableInfo [bloom-filter head-key tail-key])
+
+(defn write-table-info
+  [file-path {:keys [bloom-filter head-key tail-key]}]
+  (with-open [file-stream (FileOutputStream. file-path)]
+    (with-open [out-stream (BufferedOutputStream. file-stream)]
+      (io/write-bytes! out-stream (blossom/serialize-filter bloom-filter))
+      (io/write-bytes! out-stream head-key)
+      (io/write-bytes! out-stream tail-key)
+      (.flush out-stream)
+      (-> file-stream .getFD .sync))))
+
+(defn read-table-info
+  [file-path {:keys [bloom-filter]}]
+  (with-open [in-stream (java-io/input-stream file-path)]
+    (->TableInfo
+     (blossom/deserialize-filter (io/read-data! in-stream) bloom-filter)
+     (io/read-data! in-stream)
+     (io/read-data! in-stream))))
 
 (defrecord TreeStore [dir sstables]
   store/IStoreRead
@@ -48,10 +73,24 @@
              (rest tables))))))))
 
 (defn restore-tree-store
-  [{:keys [sstable-dir]}]
+  [{:keys [sstable-dir] :as config}]
   (io/make-dir sstable-dir)
-  ; TODO: restore from the exiting sstables
-  [(->TreeStore sstable-dir []) 0])
+  (let [indexes (->> (io/list-files sstable-dir)
+                     (filter #(and (.isFile %)
+                                   (.endsWith (.getName %) ".sst")))
+                     (map #(Integer. (re-find #"\d+" (.getName %))))
+                     (remove nil?)
+                     sort)
+        tables (mapv (fn [index]
+                       [index
+                        (read-table-info (get-info-path index sstable-dir)
+                                         config)])
+                     indexes)
+        sstable-id (if (empty? indexes)
+                     0
+                     (-> (last indexes) (quot 2) inc (* 2)))]
+    (logging/info "Restoring SSTables:" indexes)
+    [(->TreeStore sstable-dir tables) sstable-id]))
 
 (defn update-tree
   [tree new-id new-table-info]

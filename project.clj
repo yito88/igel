@@ -8,7 +8,7 @@
                  [org.clojure/data.fressian "1.0.0"]
                  [org.clojure/tools.logging "1.2.4"]
                  [clj-commons/clj-yaml "1.0.27"]
-                 [blossom "1.0.0"]]
+                 [blossom "1.1.0"]]
   :profiles {:dev {:plugins [[lein-cloverage "1.2.4"]]}
              :uberjar {:aot :all
                        :jvm-opts ["-Dclojure.compiler.direct-linking=true"]}})

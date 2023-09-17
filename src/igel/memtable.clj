@@ -1,7 +1,8 @@
 (ns igel.memtable
   (:require [clojure.core.async :as async]
             [igel.data :as data]
-            [igel.store :as store :refer [select scan write! delete!]]))
+            [igel.store :as store :refer [select scan write! delete!]]
+            [igel.wal :as wal]))
 
 (defrecord MemStore [^java.util.TreeMap mem]
   store/IStoreRead
@@ -71,11 +72,20 @@
           (throw (ex-info "Delete failed" {:retriable false})))))))
 
 (defn create-memtable
-  "Create the memtable handler"
+  "Create the new memtable"
   [wal-chan]
   (->Memtable (->MemStore (new java.util.TreeMap (data/byte-array-comparator)))
               wal-chan
               (atom 0)))
+
+(defn init-memtable
+  "Initialize the memtable. Restore data from WAL to the new memtable."
+  [wal-chan config]
+  (let [store (->MemStore (new java.util.TreeMap (data/byte-array-comparator)))
+        wal-pairs (wal/load-existing-wal config)
+        memtable-size (if (empty? wal-pairs) 0 (:memtable-size config))]
+    (mapv #(apply write! store %) wal-pairs)
+    (->Memtable store wal-chan (atom memtable-size))))
 
 (defn entry-set
   [^Memtable memtable]
