@@ -2,12 +2,7 @@
   (:require [clojure.java.io :as io]
             [igel.data :as data])
   (:import (java.io BufferedInputStream
-                    BufferedOutputStream
-                    ByteArrayInputStream
-                    ByteArrayOutputStream
-                    FileOutputStream
-                    ObjectInputStream
-                    ObjectOutputStream)
+                    BufferedOutputStream)
            (java.nio ByteBuffer)
            (java.util.zip CRC32)))
 

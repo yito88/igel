@@ -1,44 +1,72 @@
 # Igel
 
-Simple Key-Value Store
+Simple Key-Value Store based on LSM Tree
+
+The written data is persisted into the disk. The memtable (write buffer on memory) is protected by WAL(write ahead logging).
 
 ## TODO
-- WAL
+- ~~WAL~~
 - Compaction
 - Error handling
 - Background flush/compaction
 - Concurrency
 - Indexing
 
-## Installation
-
-Download from http://example.com/FIXME.
-
 ## Usage
 
-FIXME: explanation
+```clojure
+(require '[igel.core :as igel])
 
-    $ java -jar igel-0.1.0-standalone.jar [args]
+;; Generate a KVS with a config file
+(def kvs (igel/gen-kvs "config.yaml"))
 
-## Options
+;; A key and a value as bytes
+(def key1 (.getBytes "key1"))
+(def val1 (.getBytes "val1"))
 
-FIXME: listing of options this app accepts.
+;; Write the key-value pair
+(igel/write! kvs key1 val1)
 
-## Examples
+;; Read the key-value pair
+(igel/select kvs key1)
+; -> #whidbey/bin "dmFsMQ"
 
-...
+;; with deserialization
+(String. (igel/select kvs key1))
+; -> "val1"
 
-### Bugs
+;; Write some pairs
+(doseq [i (range 2 5)]
+  (igel/write! kvs (.getBytes (str "key" i)) (.getBytes (str "val" i))))
 
-...
+;; Scan pairs with from-key(inclusive) and to-key(not-inclusive)
+(def from-key (.getBytes "key0"))
+(def to-key (.getBytes "key3"))
+(igel/scan kvs from-key to-key)
+; -> ([#whidbey/bin "a2V5MQ" #whidbey/bin "dmFsMQ"]
+;     [#whidbey/bin "a2V5Mg" #whidbey/bin "dmFsMg"])
 
-### Any Other Sections
-### That You Think
-### Might be Useful
+;; with deserialization
+(map (fn [[k v]] [(String. k) (String. v)])
+     (igel/scan kvs from-key to-key))
+; -> (["key1" "val1"] ["key2" "val2"])
+
+;; Delete a key
+(igel/delete! kvs (.getBytes "key2"))
+
+;; The key2 was deleted
+(map (fn [[k v]] [(String. k) (String. v)])
+     (igel/scan kvs from-key to-key))
+; -> (["key1" "val1"])
+```
+
+## Configuration
+
+FIXME: listing of parameters
 
 ## License
 
-Copyright © 2023 FIXME
+Copyright © 2023 Yuji Ito
 
 This program and the accompanying materials are made available under the
 terms of the Eclipse Public License 2.0 which is available at
