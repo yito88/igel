@@ -8,7 +8,7 @@ The written data is persisted into the disk. The memtable (write buffer on memor
 - ~~WAL~~
 - Compaction
 - Error handling
-- Background flush/compaction
+- Background ~~flush~~/compaction
 - Concurrency
 - Indexing
 
