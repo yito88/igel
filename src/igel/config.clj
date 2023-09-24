@@ -19,12 +19,18 @@
         default {:memtable-size DEFAULT_MEMTABLE_SIZE
                  :sync-window-time DEFAULT_SYNC_WINDOW_TIME
                  :write-retries DEFAULT_WRITE_RETRIES
-                 :bloom-filter DEFAULT_BLOOM_FILTER}]
-    (when (nil? (:sstable-dir config))
+                 :bloom-filter DEFAULT_BLOOM_FILTER}
+        result (merge default config)]
+    (when (nil? (:sstable-dir result))
       (throw (ex-info "Need to set `sstable-dir` in the config" config)))
-    (when (nil? (:wal-dir config))
+    (when (nil? (:wal-dir result))
       (throw (ex-info "Need to set `wal-dir` in the config" config)))
-    (reduce
-     (fn [ret [k v]] (if (nil? (get config k)) (assoc ret k v) ret))
-     config
-     default)))
+    (when (not (pos? (:memtable-size result)))
+      (throw (ex-info
+              "`memtable-size` should be positive in the config"
+              config)))
+    (when (not (pos? (:sync-window-time result)))
+      (throw (ex-info
+              "`sync-window-time` should be positive in the config"
+              result)))
+    result))
