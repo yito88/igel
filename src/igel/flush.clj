@@ -39,7 +39,7 @@
         (.flush out-stream)
         (-> file-stream .getFD .sync)))
     (let [table-info (sstable/->TableInfo bf head-key tail-key)]
-      (sstable/write-table-info info-path table-info)
+      (sstable/write-table-info info-path table-info 0)
       table-info)))
 
 (defn- flush!
@@ -56,7 +56,7 @@
       ;; Send a new WAL ID and wal-chan to the WAL writer to receive new requests
       (async/>!! flush-wal-chan [(+ @sstable-id 2) wal-chan])
       ;; Update the tree
-      (swap! tree #(sstable/update-tree % new-id table-info))
+      (sstable/add-new-table! tree new-id table-info)
       ;; The previous WAL can be deleted
       (io/delete-file (wal/wal-file-path @sstable-id config))
       ;; Update SSTable ID for the next

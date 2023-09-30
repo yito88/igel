@@ -61,12 +61,12 @@
   store/IStoreRead
   (select
     [_ k]
-    (let [data (or (store/select @memtable k) (store/select @tree k))]
+    (let [data (or (store/select @memtable k) (store/select tree k))]
       (when (data/is-valid? data) (:value data))))
   (scan
     [_ from-key to-key]
     (->> (merge-scan-results (store/scan @memtable from-key to-key)
-                             (store/scan @tree from-key to-key))
+                             (store/scan tree from-key to-key))
          (filter (fn [[_ data]] (data/is-valid? data)))
          (map (fn [[k data]] [k (:value data)]))))
 
@@ -112,9 +112,9 @@
 (defn gen-kvs
   [config-path]
   (let [config (config/load-config config-path)
-        [tree sstable-id] (mapv atom (restore-tree-store config))
+        [tree sstable-id] (restore-tree-store config)
         memtable (atom (init-memtable (async/chan) config))
-        workers (spawn-bg-workers memtable tree sstable-id config)]
+        workers (spawn-bg-workers memtable tree (atom sstable-id) config)]
     ;; wait for the first flush by checking the memtable size
     (loop [retries (:write-retries config)]
       (if (zero? retries)

@@ -6,13 +6,13 @@
            (java.nio ByteBuffer)
            (java.util.zip CRC32)))
 
-(defn- serialize-long
+(defn serialize-long
   [value]
   (let [buf (ByteBuffer/allocate Long/BYTES)]
     (.putLong buf value)
     (.array buf)))
 
-(defn- deserialize-long
+(defn deserialize-long
   [bytes]
   (.getLong (ByteBuffer/wrap bytes)))
 
